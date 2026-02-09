@@ -1,0 +1,5 @@
+{
+  "name": "Crédit-Garde",
+  "description": "Une application de suivi de crédits permettant de saisir le nom du client, le type de crédit, le montant, la date de déblocage et l'intérêt à payer.",
+  "requestFramePermissions": []
+}
