@@ -1,11 +1,32 @@
-
 import React, { useState, useEffect } from 'react';
-import { Credit, Repayment, User, RecoveryAction, Log } from './types';
+import { Credit, Repayment, User, RecoveryAction, Log, Installment } from './types';
 import CreditForm from './components/CreditForm';
 import CreditList from './components/CreditList';
 import { supabase } from './supabase';
 
 const ZONES_LIST = ['01','01A','02','02A','03','03A','04','04A','05','05A','06','06A','07','07A','08','08A','09','09A','Personnel','VIP','Autres'];
+
+const getDelayDuration = (dateStr: string) => {
+  const start = new Date(dateStr);
+  const now = new Date();
+  if (now <= start) return "0 an(s), 0 mois, 0 jour(s)";
+
+  let years = now.getFullYear() - start.getFullYear();
+  let months = now.getMonth() - start.getMonth();
+  let days = now.getDate() - start.getDate();
+
+  if (days < 0) {
+    months--;
+    const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+    days += prevMonthLastDay;
+  }
+  if (months < 0) {
+    years--;
+    months += 12;
+  }
+
+  return `${years} an(s), ${months} mois, ${days} jour(s)`;
+};
 
 const RECOVERY_TIPS: Record<string, string[]> = {
   'Administrateur': [
@@ -125,6 +146,7 @@ const App: React.FC = () => {
   // Filtres Crédits Actifs
   const [activeFilterType, setActiveFilterType] = useState<string>('Tous');
   const [activeFilterZone, setActiveFilterZone] = useState<string>('Toutes');
+  const [activeFilterStatus, setActiveFilterStatus] = useState<string>('Tous');
 
   // Filtres Crédits Soldés
   const [settledFilterType, setSettledFilterType] = useState<string>('Tous');
@@ -458,8 +480,34 @@ const App: React.FC = () => {
     }
   };
 
+  const generateInstallments = (credit: Credit) => {
+    const installments: Installment[] = [];
+    const totalDue = credit.creditAccordeChiffre + (credit.intTotal || 0);
+    const monthlyAmount = totalDue / credit.dureeMois;
+    const deblocageDate = new Date(credit.dateDeblocage);
+    
+    for (let i = 1; i <= credit.dureeMois; i++) {
+      const dueDate = new Date(deblocageDate);
+      dueDate.setMonth(dueDate.getMonth() + i);
+      installments.push({
+        number: i,
+        dueDate: dueDate.toISOString().split('T')[0],
+        amount: monthlyAmount,
+        status: 'non payé'
+      });
+    }
+    return installments;
+  };
+
   const handleAddCredit = (newCredit: Credit) => {
-    setCredits(prev => [...prev, { ...newCredit, microfinance_code: microfinance_code_actif || '', repayments: [], recoveryActions: [] }]);
+    const creditWithInstallments = { 
+      ...newCredit, 
+      microfinance_code: microfinance_code_actif || '', 
+      repayments: [], 
+      recoveryActions: [],
+      installments: generateInstallments(newCredit)
+    };
+    setCredits(prev => [...prev, creditWithInstallments]);
     setActiveTab('active');
     if (currentUser && currentUserRole) {
       addLog('Ajout d\'un crédit', currentUser, currentUserRole, `Client: ${newCredit.clientName}`);
@@ -467,7 +515,12 @@ const App: React.FC = () => {
   };
 
   const handleUpdateCredit = (updatedCredit: Credit) => {
-    setCredits(prev => prev.map(c => c.id === updatedCredit.id ? updatedCredit : c));
+    // On régénère l'échéancier si la durée ou le montant ont changé
+    const creditWithInstallments = { 
+      ...updatedCredit, 
+      installments: generateInstallments(updatedCredit)
+    };
+    setCredits(prev => prev.map(c => c.id === updatedCredit.id ? creditWithInstallments : c));
     setEditingCredit(null);
     setActiveTab('active');
     if (currentUser && currentUserRole) {
@@ -536,6 +589,30 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateRecoveryAction = (creditId: string, updatedAction: RecoveryAction) => {
+    setCredits(prev => prev.map(credit => 
+      credit.id === creditId 
+        ? { ...credit, recoveryActions: (credit.recoveryActions || []).map(a => a.id === updatedAction.id ? updatedAction : a) }
+        : credit
+    ));
+    const credit = credits.find(c => c.id === creditId);
+    if (currentUser && currentUserRole && credit) {
+      addLog('Mise à jour action recouvrement', currentUser, currentUserRole, `Client: ${credit.clientName}, Action ID: ${updatedAction.id}`);
+    }
+  };
+
+  const handleDeleteRecoveryAction = (creditId: string, actionId: string) => {
+    setCredits(prev => prev.map(credit => 
+      credit.id === creditId 
+        ? { ...credit, recoveryActions: (credit.recoveryActions || []).filter(a => a.id !== actionId) }
+        : credit
+    ));
+    const credit = credits.find(c => c.id === creditId);
+    if (currentUser && currentUserRole && credit) {
+      addLog('Suppression action recouvrement', currentUser, currentUserRole, `Client: ${credit.clientName}, Action ID: ${actionId}`);
+    }
+  };
+
   const handleAddUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (newUsername.trim() && newPassword.trim()) {
@@ -570,6 +647,21 @@ const App: React.FC = () => {
     }
   };
 
+  const handleClearLogs = () => {
+    if (window.confirm("Voulez-vous vraiment vider tout l'historique des activités ?")) {
+      setLogs([]);
+      if (currentUser && currentUserRole) {
+        addLog('Historique vidé', currentUser, currentUserRole);
+      }
+    }
+  };
+
+  const handleDeleteLog = (id: string) => {
+    if (window.confirm("Supprimer cette entrée de l'historique ?")) {
+      setLogs(prev => prev.filter(l => l.id !== id));
+    }
+  };
+
   const toggleUserActivation = (id: string) => {
     setUsers(prev => prev.map(u => {
       if (u.id === id) {
@@ -600,7 +692,53 @@ const App: React.FC = () => {
     return capitalBalance <= 0 && interestBalance <= 0;
   };
 
+  const getCreditStatus = (credit: Credit) => {
+    if (isCreditSettled(credit)) return 'payé';
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const totalRepaid = (credit.repayments || []).reduce((acc, r) => acc + r.capital + r.interests, 0);
+    const installments = credit.installments || [];
+    
+    const lateCount = installments.filter(inst => {
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+      const isCovered = totalRepaid >= (cumulativeDue - 1); // tolerance 1 FCFA
+      return !isCovered && inst.dueDate < todayStr;
+    }).length;
+
+    const echeance = credit.creditType === 'ORDINAIRE FIDELIA' ? credit.dateDernierRemboursement : credit.aRembourserLe;
+
+    if (lateCount > 0 || (echeance && echeance < todayStr)) return 'en retard';
+    return 'en cours';
+  };
+
   const getDossierHTML = (credit: Credit) => {
+    const totalRepaidAll = (credit.repayments || []).reduce((acc, r) => acc + r.capital + r.interests, 0);
+    const installments = credit.installments || [];
+    
+    const monthlyCapital = (credit.dureeMois || 0) > 0 ? (credit.creditAccordeChiffre / credit.dureeMois) : 0;
+    const monthlyInterest = (credit.dureeMois || 0) > 0 ? ((credit.intTotal || 0) / credit.dureeMois) : 0;
+    const monthlyExpected = installments.length > 0 ? installments[0].amount : (monthlyCapital + monthlyInterest);
+    
+    const totalInstallments = installments.length || credit.dureeMois || 0;
+    const paidCount = installments.length > 0
+      ? installments.filter(inst => {
+          const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+          return totalRepaidAll >= (cumulativeDue - 1);
+        }).length
+      : (monthlyExpected > 0 ? Math.min(totalInstallments, Math.floor((totalRepaidAll + 1) / monthlyExpected)) : 0);
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const oldestLateInstallment = installments.find(inst => {
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+      const isCovered = totalRepaidAll >= (cumulativeDue - 1);
+      return !isCovered && inst.dueDate < todayStr;
+    });
+
+    const repaidCap = (credit.repayments || []).reduce((acc, r) => acc + r.capital, 0);
+    const repaidInt = (credit.repayments || []).reduce((acc, r) => acc + r.interests, 0);
+    const capRest = credit.creditAccordeChiffre - repaidCap;
+    const intRest = (credit.intTotal || 0) - repaidInt;
+
     return `
       <!DOCTYPE html>
       <html lang="fr">
@@ -628,6 +766,7 @@ const App: React.FC = () => {
           .table-container { width: 100%; border-collapse: collapse; margin-top: 10px; }
           .table-container th, .table-container td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; font-size: 9pt; }
           .table-container th { background-color: #f8fafc; font-weight: 900; text-transform: uppercase; color: #475569; -webkit-print-color-adjust: exact; }
+          .badge-retard { background-color: #ef4444; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 900; text-transform: uppercase; font-size: 10px; margin-left: 10px; display: inline-block; -webkit-print-color-adjust: exact; }
           @media print {
             .no-print { display: none; }
           }
@@ -650,19 +789,25 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div class="report-title">DOSSIER DE CRÉDIT - ${credit.creditType}</div>
+          <div class="report-title">
+            DOSSIER DE CRÉDIT - ${credit.creditType}
+            ${oldestLateInstallment ? '<span class="badge-retard">RETARD</span>' : ''}
+          </div>
 
           <div class="section">
             <div class="section-title">Informations du Client</div>
             <div class="grid">
               <div class="item"><span class="label">Client:</span> <span class="value">${credit.clientCivilite} ${credit.clientName}</span></div>
               <div class="item"><span class="label">Zone:</span> <span class="value">${credit.zone}</span></div>
+              <div class="item"><span class="label">Agent Commercial:</span> <span class="value">${credit.agentCommercial || '-'}</span></div>
               <div class="item"><span class="label">Profession:</span> <span class="value">${credit.profession}</span></div>
               <div class="item"><span class="label">Téléphone:</span> <span class="value">${credit.tel}</span></div>
+              <div class="item"><span class="label">Revenu Mensuel:</span> <span class="value">${(credit.clientRevenuMensuel || 0).toLocaleString()} FCFA</span></div>
               <div class="item"><span class="label">Adresse Domicile:</span> <span class="value">${credit.adresseDomicile}</span></div>
               <div class="item"><span class="label">Compte Épargne:</span> <span class="value">${credit.noCompte}</span></div>
               <div class="item"><span class="label">Compte Tontine:</span> <span class="value">${credit.noCompteTontine}</span></div>
               <div class="item"><span class="label">Mise Tontine:</span> <span class="value">${credit.mise}</span></div>
+              ${oldestLateInstallment ? `<div class="item"><span class="label" style="color: #ef4444;">Statut:</span> <span class="value" style="color: #ef4444;">RETARD de ${getDelayDuration(oldestLateInstallment.dueDate)}</span></div>` : ''}
             </div>
           </div>
 
@@ -675,6 +820,9 @@ const App: React.FC = () => {
               <div class="item"><span class="label">Échéance Finale:</span> <span class="value">${credit.creditType === 'ORDINAIRE FIDELIA' ? credit.dateDernierRemboursement : credit.aRembourserLe}</span></div>
               <div class="item"><span class="label">Intérêt Total:</span> <span class="value">${(credit.intTotal || 0).toLocaleString()} FCFA</span></div>
               <div class="item"><span class="label">Utilisation:</span> <span class="value">${credit.utilisationCredit}</span></div>
+              <div class="item"><span class="label">Mensualités Payées:</span> <span class="value">${paidCount} / ${totalInstallments}</span></div>
+              <div class="item"><span class="label">Restant Cap:</span> <span class="value" style="color: #16a34a;">${capRest.toLocaleString()} FCFA</span></div>
+              <div class="item"><span class="label">Restant Int:</span> <span class="value" style="color: #2563eb;">${intRest.toLocaleString()} FCFA</span></div>
             </div>
           </div>
 
@@ -758,14 +906,32 @@ const App: React.FC = () => {
       const capRest = c.creditAccordeChiffre - repaidCap;
       const intRest = (c.intTotal || 0) - repaidInt;
       const echeance = c.creditType === 'ORDINAIRE FIDELIA' ? (c.dateDernierRemboursement || '-') : (c.aRembourserLe || '-');
+      
+      const totalRepaidAll = repaidCap + repaidInt;
+      const installments = c.installments || [];
+      
+      const mCap = (c.dureeMois || 0) > 0 ? (c.creditAccordeChiffre / c.dureeMois) : 0;
+      const mInt = (c.dureeMois || 0) > 0 ? ((c.intTotal || 0) / c.dureeMois) : 0;
+      const mExpected = installments.length > 0 ? installments[0].amount : (mCap + mInt);
+      const totalInst = installments.length || c.dureeMois || 0;
+      
+      const paidCount = installments.length > 0
+        ? installments.filter(inst => {
+            const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+            return totalRepaidAll >= (cumulativeDue - 1);
+          }).length
+        : (mExpected > 0 ? Math.min(totalInst, Math.floor((totalRepaidAll + 1) / mExpected)) : 0);
+
       return `
         <tr>
           <td>${c.dossierNo}</td>
           <td>${c.clientName}</td>
+          <td>${c.agentCommercial || '-'}</td>
           <td>${c.creditType}</td>
           <td style="text-align: right;">${c.creditAccordeChiffre.toLocaleString()}</td>
           <td style="text-align: right; font-weight: bold; color: #16a34a;">${capRest.toLocaleString()}</td>
           <td style="text-align: right; color: #2563eb;">${intRest.toLocaleString()}</td>
+          <td style="text-align: center;">${paidCount} / ${totalInst}</td>
           <td>${echeance}</td>
         </tr>
       `;
@@ -804,10 +970,12 @@ const App: React.FC = () => {
             <tr>
               <th>Dossier No</th>
               <th>Nom du Client</th>
+              <th>Agent Commercial</th>
               <th>Type de Produit</th>
               <th>Capital Initial</th>
               <th>Capital Restant</th>
               <th>Intérêts Dus</th>
+              <th>Mensualités</th>
               <th>Échéance Finale</th>
             </tr>
           </thead>
@@ -978,21 +1146,57 @@ const App: React.FC = () => {
   const userZone = loggedInUserObj?.zone;
 
   const settledCredits = credits.filter(credit => 
-    isCreditSettled(credit) && 
+    getCreditStatus(credit) === 'payé' && 
     (currentUserRole !== 'Agents commerciaux' || credit.zone === userZone) &&
     (settledFilterType === 'Tous' || credit.creditType === settledFilterType) &&
     (settledFilterZone === 'Toutes' || credit.zone === settledFilterZone) &&
     credit.microfinance_code === microfinance_code_actif &&
     (credit.zone !== 'VIP' || (currentUserRole === 'Administrateur' || currentUserRole === 'Directeur'))
   );
-  const activeCredits = credits.filter(credit => 
-    !isCreditSettled(credit) && 
-    (currentUserRole !== 'Agents commerciaux' || credit.zone === userZone) &&
-    (activeFilterType === 'Tous' || credit.creditType === activeFilterType) &&
-    (activeFilterZone === 'Toutes' || credit.zone === activeFilterZone) &&
-    credit.microfinance_code === microfinance_code_actif &&
-    (credit.zone !== 'VIP' || (currentUserRole === 'Administrateur' || currentUserRole === 'Directeur'))
-  );
+
+  const activeCredits = credits.filter(credit => {
+    const status = getCreditStatus(credit);
+    if (status === 'payé') return false;
+
+    // Permissions check
+    if (currentUserRole === 'Agents commerciaux' && credit.zone !== userZone) return false;
+    if (credit.zone === 'VIP' && !(currentUserRole === 'Administrateur' || currentUserRole === 'Directeur')) return false;
+    if (credit.microfinance_code !== microfinance_code_actif) return false;
+
+    // Type and Zone filters
+    if (activeFilterType !== 'Tous' && credit.creditType !== activeFilterType) return false;
+    if (activeFilterZone !== 'Toutes' && credit.zone !== activeFilterZone) return false;
+
+    // Status Filter logic
+    const todayStr = new Date().toISOString().split('T')[0];
+    const totalRepaidAll = (credit.repayments || []).reduce((acc, r) => acc + r.capital + r.interests, 0);
+    const installments = credit.installments || [];
+    const echeance = credit.creditType === 'ORDINAIRE FIDELIA' ? credit.dateDernierRemboursement : credit.aRembourserLe;
+    
+    const isLate = status === 'en retard';
+    
+    const nextInstallment = installments.find(inst => {
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+      return totalRepaidAll < (cumulativeDue - 1);
+    });
+
+    const checkSoon = (dateStr?: string) => {
+      if (!dateStr) return false;
+      const targetDate = new Date(dateStr);
+      const today = new Date(todayStr);
+      const diffTime = targetDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays >= 0 && diffDays <= 7;
+    };
+
+    const isSoon = !isLate && (checkSoon(nextInstallment?.dueDate) || checkSoon(echeance));
+
+    if (activeFilterStatus === 'Retard') return isLate;
+    if (activeFilterStatus === 'Proche') return isSoon;
+    if (activeFilterStatus === 'Sain') return status === 'en cours' && !isSoon;
+
+    return true;
+  });
   
   const filteredActiveCredits = filterCredits(activeCredits);
   const filteredSettledCredits = filterCredits(settledCredits);
@@ -1005,22 +1209,23 @@ const App: React.FC = () => {
     c.microfinance_code === microfinance_code_actif &&
     (c.zone !== 'VIP' || (currentUserRole === 'Administrateur' || currentUserRole === 'Directeur'))
   );
-  const dbActiveCredits = dashboardCredits.filter(c => !isCreditSettled(c));
-  const dbSettledCredits = dashboardCredits.filter(c => isCreditSettled(c));
+  const dbActiveCredits = dashboardCredits.filter(c => getCreditStatus(c) !== 'payé');
+  const dbSettledCredits = dashboardCredits.filter(c => getCreditStatus(c) === 'payé');
 
   const dbToday = new Date().toISOString().split('T')[0];
-  const dbLateCredits = dbActiveCredits.filter(c => {
-    const deadline = c.creditType === 'ORDINAIRE FIDELIA' ? c.dateDernierRemboursement : c.aRembourserLe;
-    return deadline && dbToday > deadline;
-  });
-  const dbHealthyCredits = dbActiveCredits.filter(c => {
-    const deadline = c.creditType === 'ORDINAIRE FIDELIA' ? c.dateDernierRemboursement : c.aRembourserLe;
-    return !deadline || dbToday <= deadline;
-  });
+  const dbLateCredits = dbActiveCredits.filter(c => getCreditStatus(c) === 'en retard');
+  const dbHealthyCredits = dbActiveCredits.filter(c => getCreditStatus(c) === 'en cours');
+  
   const dbPar30Credits = dbActiveCredits.filter(c => {
-    const deadline = c.creditType === 'ORDINAIRE FIDELIA' ? c.dateDernierRemboursement : c.aRembourserLe;
-    if (!deadline) return false;
-    const deadlineDate = new Date(deadline);
+    const installments = c.installments || [];
+    const totalRepaid = (c.repayments || []).reduce((acc, r) => acc + r.capital + r.interests, 0);
+    const oldestLateInstallment = installments.find(inst => {
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+      return totalRepaid < (cumulativeDue - 1) && inst.dueDate < dbToday;
+    });
+
+    if (!oldestLateInstallment) return false;
+    const deadlineDate = new Date(oldestLateInstallment.dueDate);
     const todayDate = new Date(dbToday);
     const diffTime = todayDate.getTime() - deadlineDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -1046,10 +1251,9 @@ const App: React.FC = () => {
   const dbPar30Rate = dbTotalOutstanding > 0 ? (dbPar30Amount / dbTotalOutstanding) * 100 : 0;
 
   const dbTotalCapitalAccorde = dashboardCredits.reduce((acc, c) => acc + (c.creditAccordeChiffre || 0), 0);
-  const dbTotalCapitalRembourse = dashboardCredits.reduce((acc, c) => acc + (c.repayments || []).reduce((ra, r) => ra + r.capital, 0), 0);
+  const dbTotalCapitalRembourse = dashboardCredits.reduce((acc, r) => acc + (r.repayments || []).reduce((ra, rb) => ra + rb.capital, 0), 0);
   const dbRecoveryRate = dbTotalCapitalAccorde > 0 ? (dbTotalCapitalRembourse / dbTotalCapitalAccorde) * 100 : 0;
 
-  // Calcul de la civilité pour le tableau de bord
   const dbTotalMonsieur = dashboardCredits.filter(c => c.clientCivilite === 'Monsieur').length;
   const dbTotalMadame = dashboardCredits.filter(c => c.clientCivilite === 'Madame').length;
 
@@ -1358,6 +1562,28 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Section Commentaire / Diagnostic */}
+              <div className="mt-8 p-6 bg-slate-50 rounded-2xl border border-slate-200">
+                 <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Diagnostic & Commentaire du Portefeuille</h3>
+                 <p className={`text-lg font-black leading-tight ${dbPar1Rate > 10 || dbPar30Rate > 5 ? 'text-red-600' : 'text-emerald-600'}`}>
+                   {dbPar1Rate > 20 || dbPar30Rate > 10 
+                     ? "ALERTE CRITIQUE : La qualité du portefeuille est gravement compromise. Le taux d'impayés dépasse largement les limites de sécurité. Une action de recouvrement coercitive et une révision radicale de la politique d'octroi sont impératives."
+                     : dbPar1Rate > 10 || dbPar30Rate > 5
+                     ? "VIGILANCE : Plusieurs indicateurs de risque sont hors-normes. Le risque de contagion est présent. Il est recommandé de prioriser le suivi des retards de moins de 30 jours pour stabiliser le portefeuille."
+                     : "SITUATION SAINE : Le portefeuille présente une excellente tenue. Les indicateurs de risque (PAR) sont conformes aux meilleures pratiques prudentielles du secteur de la microfinance. Continuez le suivi préventif rigoureux."}
+                 </p>
+                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                   <div className="flex items-center gap-2">
+                     <span className={`w-2 h-2 rounded-full ${dbPar1Rate <= 10 ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                     <span>Norme PAR 1j (10%): {dbPar1Rate <= 10 ? 'CONFORME' : 'DÉPASSÉE'}</span>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <span className={`w-2 h-2 rounded-full ${dbPar30Rate <= 5 ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                     <span>Norme PAR 30j (5%): {dbPar30Rate <= 5 ? 'CONFORME' : 'DÉPASSÉE'}</span>
+                   </div>
+                 </div>
+              </div>
             </section>
           )}
 
@@ -1384,6 +1610,12 @@ const App: React.FC = () => {
                   <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider print:hidden">{activeCredits.length} Dossiers</span>
                 </div>
                 <div className="flex flex-wrap gap-2 print:hidden">
+                  <select value={activeFilterStatus} onChange={(e) => setActiveFilterStatus(e.target.value)} className="text-xs border rounded-lg p-2 bg-gray-50 outline-none focus:ring-1 focus:ring-emerald-500 font-bold">
+                    <option value="Tous">Tous états</option>
+                    <option value="Retard">En retard</option>
+                    <option value="Proche">Échéance proche</option>
+                    <option value="Sain">Sains</option>
+                  </select>
                   <select value={activeFilterType} onChange={(e) => setActiveFilterType(e.target.value)} className="text-xs border rounded-lg p-2 bg-gray-50 outline-none focus:ring-1 focus:ring-emerald-500 font-bold">
                     <option value="Tous">Tous types</option>
                     {creditTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1405,7 +1637,21 @@ const App: React.FC = () => {
                   </div>
                 )}
               </div>
-              <CreditList credits={filteredActiveCredits} onDeleteCredit={handleDeleteCredit} onEditCredit={handleEditCredit} onAddRepayment={handleAddRepayment} onUpdateRepayment={handleUpdateRepayment} onDeleteRepayment={handleDeleteRepayment} onAddRecoveryAction={handleAddRecoveryAction} onPrintDossier={handlePrintDossier} onExportDossier={handleExportDossier} userRole={currentUserRole} currentUser={currentUser} />
+              <CreditList 
+                credits={filteredActiveCredits} 
+                onDeleteCredit={handleDeleteCredit} 
+                onEditCredit={handleEditCredit} 
+                onAddRepayment={handleAddRepayment} 
+                onUpdateRepayment={handleUpdateRepayment} 
+                onDeleteRepayment={handleDeleteRepayment} 
+                onAddRecoveryAction={handleAddRecoveryAction} 
+                onUpdateRecoveryAction={handleUpdateRecoveryAction}
+                onDeleteRecoveryAction={handleDeleteRecoveryAction}
+                onPrintDossier={handlePrintDossier} 
+                onExportDossier={handleExportDossier} 
+                userRole={currentUserRole} 
+                currentUser={currentUser} 
+              />
             </section>
           )}
 
@@ -1438,7 +1684,21 @@ const App: React.FC = () => {
                   </div>
                 )}
               </div>
-              <CreditList credits={filteredSettledCredits} onDeleteCredit={handleDeleteCredit} onEditCredit={handleEditCredit} onAddRepayment={handleAddRepayment} onUpdateRepayment={handleUpdateRepayment} onDeleteRepayment={handleDeleteRepayment} onAddRecoveryAction={handleAddRecoveryAction} onPrintDossier={handlePrintDossier} onExportDossier={handleExportDossier} userRole={currentUserRole} currentUser={currentUser} />
+              <CreditList 
+                credits={filteredSettledCredits} 
+                onDeleteCredit={handleDeleteCredit} 
+                onEditCredit={handleEditCredit} 
+                onAddRepayment={handleAddRepayment} 
+                onUpdateRepayment={handleUpdateRepayment} 
+                onDeleteRepayment={handleDeleteRepayment} 
+                onAddRecoveryAction={handleAddRecoveryAction} 
+                onUpdateRecoveryAction={handleUpdateRecoveryAction}
+                onDeleteRecoveryAction={handleDeleteRecoveryAction}
+                onPrintDossier={handlePrintDossier} 
+                onExportDossier={handleExportDossier} 
+                userRole={currentUserRole} 
+                currentUser={currentUser} 
+              />
             </section>
           )}
 
@@ -1665,11 +1925,19 @@ const App: React.FC = () => {
 
           {activeTab === 'logs' && canSeeLogs && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-              <h2 className="text-3xl font-black text-slate-900 mb-8 border-b pb-4">Historique des Activités</h2>
+              <div className="flex justify-between items-center mb-8 border-b pb-4">
+                <h2 className="text-3xl font-black text-slate-900">Historique des Activités</h2>
+                <button 
+                  onClick={handleClearLogs}
+                  className="bg-red-600 hover:bg-red-700 text-white font-black py-2 px-4 rounded-xl text-[10px] uppercase tracking-widest transition-colors shadow-lg shadow-red-500/20"
+                >
+                  Vider l'historique
+                </button>
+              </div>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
-                    <tr><th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Date & Heure</th><th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Utilisateur</th><th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Action</th><th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Détails</th></tr>
+                    <tr><th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Date & Heure</th><th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Utilisateur</th><th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Action</th><th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Détails</th><th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase">Actions</th></tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {filteredLogs.map((log) => (
@@ -1678,6 +1946,7 @@ const App: React.FC = () => {
                         <td className="px-4 py-4 whitespace-nowrap text-xs font-black text-slate-900">{log.username}</td>
                         <td className="px-4 py-4 text-xs font-black text-blue-700">{log.action}</td>
                         <td className="px-4 py-4 text-xs text-gray-700 max-w-xs truncate font-medium">{log.details || '-'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-right"><button onClick={() => handleDeleteLog(log.id)} className="text-red-500 font-black text-[10px] uppercase">Supprimer</button></td>
                       </tr>
                     ))}
                   </tbody>

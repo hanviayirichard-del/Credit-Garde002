@@ -1,4 +1,3 @@
-
 export interface Repayment {
   id: string;
   date: string;
@@ -37,6 +36,13 @@ export interface Log {
   microfinance_code: string;
 }
 
+export interface Installment {
+  number: number;
+  dueDate: string;
+  amount: number;
+  status: 'payé' | 'en retard' | 'non payé';
+}
+
 export interface Credit {
   id: string;
   microfinance_code: string;
@@ -44,6 +50,7 @@ export interface Credit {
   dossierNo: string;
   date: string;
   zone: string;
+  agentCommercial: string; // Nouveau champ
   clientCivilite: string;
   clientName: string; // Nom et Prénom
   surNom?: string; // Spécifique MOKPOKPO
@@ -51,6 +58,7 @@ export interface Credit {
   adresseService: string;
   profession: string;
   tel: string;
+  clientRevenuMensuel?: number; // Nouveau champ
   personneReferenceNom?: string; // Spécifique MOKPOKPO
   personneReferenceTel?: string; // Spécifique MOKPOKPO
   noCompte: string;
@@ -104,6 +112,8 @@ export interface Credit {
   creditType: string;
   // Remboursements
   repayments: Repayment[];
+  // Échéancier mensuel
+  installments?: Installment[];
   // Actions de recouvrement
   recoveryActions?: RecoveryAction[];
   // Aliases pour compatibilité list

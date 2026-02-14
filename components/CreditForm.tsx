@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Credit } from '../types';
 
@@ -14,6 +13,60 @@ interface CreditFormProps {
 
 const ZONES_LIST = ['01','01A','02','02A','03','03A','04','04A','05','05A','06','06A','07','07A','08','08A','09','09A','Personnel','VIP','Autres'];
 
+const numberToFrench = (n: number): string => {
+  if (n === 0) return "ZÉRO";
+  const units = ["", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf"];
+  const teens = ["dix", "onze", "douze", "treize", "quatorze", "quinze", "seize", "dix-sept", "dix-huit", "dix-neuf"];
+  const tens = ["", "dix", "vingt", "trente", "quarante", "cinquante", "soixante", "soixante-dix", "quatre-vingt", "quatre-vingt-dix"];
+
+  const convert = (num: number): string => {
+    if (num < 10) return units[num];
+    if (num < 20) return teens[num - 10];
+    if (num < 70) {
+      const u = num % 10;
+      const t = Math.floor(num / 10);
+      if (u === 0) return tens[t];
+      if (u === 1) return tens[t] + " et un";
+      return tens[t] + "-" + units[u];
+    }
+    if (num < 80) {
+      const u = num % 10;
+      if (u === 0) return "soixante-dix";
+      if (u === 1) return "soixante-et-onze";
+      return "soixante-" + teens[u];
+    }
+    if (num < 100) {
+      const u = num % 10;
+      if (num === 80) return "quatre-vingts";
+      if (num < 90) return "quatre-vingt-" + units[u];
+      if (u === 0) return "quatre-vingt-dix";
+      return "quatre-vingt-" + teens[u];
+    }
+    if (num < 1000) {
+      const h = Math.floor(num / 100);
+      const r = num % 100;
+      let s = h === 1 ? "cent" : units[h] + " cent";
+      if (h > 1 && r === 0) s += "s";
+      return s + (r > 0 ? " " + convert(r) : "");
+    }
+    if (num < 1000000) {
+      const m = Math.floor(num / 1000);
+      const r = num % 1000;
+      const s = m === 1 ? "mille" : convert(m) + " mille";
+      return s + (r > 0 ? " " + convert(r) : "");
+    }
+    if (num < 1000000000) {
+      const mi = Math.floor(num / 1000000);
+      const r = num % 1000000;
+      const s = convert(mi) + " million" + (mi > 1 ? "s" : "");
+      return s + (r > 0 ? " " + convert(r) : "");
+    }
+    return num.toString();
+  };
+
+  return convert(n).toUpperCase();
+};
+
 const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUpdateCredit, readOnly, microfinanceCode, creditTypes = ['ORDINAIRE FIDELIA', 'MOKPOKPO PRE-PAYER'], onAddCreditType }) => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isAddingType, setIsAddingType] = useState(false);
@@ -23,6 +76,7 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
     dossierNo: '',
     date: '',
     zone: '',
+    agentCommercial: '',
     clientCivilite: 'Monsieur',
     clientName: '',
     surNom: '',
@@ -30,6 +84,7 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
     adresseService: '',
     profession: '',
     tel: '',
+    clientRevenuMensuel: '',
     personneReferenceNom: '',
     personneReferenceTel: '',
     noCompte: '',
@@ -87,6 +142,7 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
         dossierNo: creditToEdit.dossierNo || '',
         date: creditToEdit.date || '',
         zone: creditToEdit.zone || '',
+        agentCommercial: creditToEdit.agentCommercial || '',
         clientCivilite: creditToEdit.clientCivilite || 'Monsieur',
         clientName: creditToEdit.clientName || '',
         surNom: creditToEdit.surNom || '',
@@ -94,6 +150,7 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
         adresseService: creditToEdit.adresseService || '',
         profession: creditToEdit.profession || '',
         tel: creditToEdit.tel || '',
+        clientRevenuMensuel: creditToEdit.clientRevenuMensuel?.toString() || '',
         personneReferenceNom: creditToEdit.personneReferenceNom || '',
         personneReferenceTel: creditToEdit.personneReferenceTel || '',
         noCompte: creditToEdit.noCompte || '',
@@ -180,6 +237,26 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
     }
   }, [formData.caTotal, formData.intTotal, formData.creditType, readOnly]);
 
+  useEffect(() => {
+    if (!readOnly) {
+      const convertField = (val: string, targetName: string) => {
+        const num = parseInt(val);
+        if (!isNaN(num) && num >= 0) {
+          const words = numberToFrench(num);
+          if ((formData as any)[targetName] !== words) {
+            setFormData(prev => ({ ...prev, [targetName]: words }));
+          }
+        } else if (val === '' && (formData as any)[targetName] !== '') {
+          setFormData(prev => ({ ...prev, [targetName]: '' }));
+        }
+      };
+
+      convertField(formData.montantCautionChiffre, 'montantCautionLettre');
+      convertField(formData.creditAccordeChiffre, 'creditAccordeLettre');
+      convertField(formData.cautionPretInteretsChiffre, 'cautionPretInteretsLettre');
+    }
+  }, [formData.montantCautionChiffre, formData.creditAccordeChiffre, formData.cautionPretInteretsChiffre, readOnly]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (readOnly) return;
@@ -204,6 +281,7 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
       intTotal: Number(formData.intTotal),
       caMensuel: Number(formData.caMensuel),
       iMensuel: Number(formData.iMensuel),
+      clientRevenuMensuel: Number(formData.clientRevenuMensuel),
       cautionNbrePersonnesCharge: Number(formData.cautionNbrePersonnesCharge),
       cautionRevenuMensuel: Number(formData.cautionRevenuMensuel),
       cautionPretInteretsChiffre: Number(formData.cautionPretInteretsChiffre),
@@ -346,6 +424,10 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
               ))}
             </select>
           </div>
+
+          <div className="md:col-span-2">
+            {renderField("Agent Commercial", "agentCommercial")}
+          </div>
           
           <div className="md:col-span-2">
             {renderField("Nom et Prénom", "clientName")}
@@ -361,6 +443,7 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
 
           {renderField("Profession", "profession")}
           {renderField("Tel", "tel")}
+          {renderField("Revenu Mensuel", "clientRevenuMensuel", "number")}
 
           {formData.creditType !== 'ORDINAIRE FIDELIA' && (
             <>

@@ -1,4 +1,3 @@
-
 import { createClient } from '@supabase/supabase-js';
 
 /**
@@ -22,23 +21,18 @@ const getEnv = (key: string): string => {
   return '';
 };
 
-// URL mise à jour selon l'identifiant projet visible sur votre écran : gvqvbycvdysovanfpeur
-const supabaseUrl = getEnv('SUPABASE_URL') || 'https://gvqvbycvdysovanfpeur.supabase.co';
-// ATTENTION : Vous devez impérativement copier la clé 'anon' du projet 'gvqvbycvdysovanfpeur' 
-// depuis votre tableau de bord Supabase (Settings > API) pour remplacer celle-ci dessous.
-const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd2cXZieWN2ZHlzb3ZhbmZwZXVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY4ODM1OTEsImV4cCI6MjA4MjQ1OTU5MX0.placeholder_key';
+// Identifiants mis à jour vers le projet miaqloahnbfxdttfifyj
+const supabaseUrl = getEnv('SUPABASE_URL') || 'https://miaqloahnbfxdttfifyj.supabase.co';
+const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pYXFsb2FobmJmeGR0dGZpZnlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2MzAxMzYsImV4cCI6MjA4NjIwNjEzNn0.ahntdWsb-TUA-3YtNgK7Rv_me_uEQLb6J5gUa93mxCM';
 
 export const supabase = createClient(
   supabaseUrl,
   supabaseAnonKey
 );
 
-if (!supabaseAnonKey || supabaseAnonKey.includes('placeholder') || !supabaseAnonKey.startsWith('eyJ')) {
+if (!supabaseAnonKey || !supabaseAnonKey.startsWith('eyJ')) {
   console.warn(
     "⚠️ CONFIGURATION SUPABASE REQUISE :\n" +
-    "L'identifiant du projet a été corrigé vers 'gvqvbycvdysovanfpeur'.\n" +
-    "1. Allez sur votre dashboard Supabase > Settings > API.\n" +
-    "2. Copiez la clé 'anon' (public).\n" +
-    "3. Collez-la dans le fichier supabase.ts à la place de la clé actuelle."
+    "Assurez-vous que les variables d'environnement sont correctement définies sur votre plateforme de déploiement."
   );
 }
