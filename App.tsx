@@ -37,7 +37,7 @@ const RECOVERY_TIPS: Record<string, string[]> = {
     "Comparez les taux de recouvrement par type de produit pour affiner la stratégie d'octroi."
   ],
   'Directeur': [
-    "Organisez des réunions de crise hebdomadaires pour les dossiers dépassant 5 millions de FCFA de retard.",
+    "Organisez des réunions de crise hebdomasaires pour les dossiers dépassant 5 millions de FCFA de retard.",
     "Supervisez personnellement les protocoles d'accord avec les clients stratégiques en difficulté.",
     "Assurez-vous que les moyens logistiques (motos, carburant) sont prioritaires pour les agents performants.",
     "Validez les procédures de saisie de garanties pour les cas de mauvaise foi avérée.",
@@ -132,7 +132,7 @@ const App: React.FC = () => {
     } catch(e) { return ['ORDINAIRE FIDELIA', 'MOKPOKPO PRE-PAYER']; }
   });
   
-  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation'>('tips');
+  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration'>('tips');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<'Administrateur' | 'Directeur' | 'Opérateur' | 'Agents commerciaux' | 'Autres' | null>(null);
@@ -237,21 +237,26 @@ const App: React.FC = () => {
           if (data.auto_deactivation) setAutoDeactivation(data.auto_deactivation);
           if (data.credit_types) setCreditTypes(data.credit_types);
           setIsSyncError(false);
+          setIsInitialLoadDone(true);
+        } else {
+          // Nouveau code ou institution vide
+          setIsSyncError(false);
+          setIsInitialLoadDone(true);
         }
       } catch (e) {
         console.error("Erreur de chargement Supabase:", e);
         setIsSyncError(true);
-      } finally {
-        setIsInitialLoadDone(true);
+        // On ne met PAS isInitialLoadDone à true pour bloquer l'accès et éviter l'écrasement
       }
     };
     loadFromSupabase();
   }, [microfinance_code_actif]);
 
-  const syncWithSupabase = async () => {
-    if (!microfinance_code_actif || !isInitialLoadDone) return;
+  const syncWithSupabase = async (overrideData?: any) => {
+    // Sécurité critique : On ne synchronise PAS si le chargement initial a échoué (sauf override de restauration)
+    if (!microfinance_code_actif || (!isInitialLoadDone && !overrideData) || (isSyncError && !overrideData)) return;
     try {
-      const { error } = await supabase.from('microfinances').upsert({
+      const payload = overrideData || {
         code: microfinance_code_actif,
         credits,
         users,
@@ -259,7 +264,8 @@ const App: React.FC = () => {
         microfinance,
         auto_deactivation: autoDeactivation,
         credit_types: creditTypes
-      });
+      };
+      const { error } = await supabase.from('microfinances').upsert(payload);
       if (error) throw error;
       setIsSyncError(false);
     } catch (e) {
@@ -482,11 +488,12 @@ const App: React.FC = () => {
 
   const generateInstallments = (credit: Credit) => {
     const installments: Installment[] = [];
-    const totalDue = credit.creditAccordeChiffre + (credit.intTotal || 0);
-    const monthlyAmount = totalDue / credit.dureeMois;
+    const totalDue = (Number(credit.creditAccordeChiffre) || 0) + (Number(credit.intTotal) || 0);
+    const months = Number(credit.dureeMois) || 1;
+    const monthlyAmount = totalDue / months;
     const deblocageDate = new Date(credit.dateDeblocage);
     
-    for (let i = 1; i <= credit.dureeMois; i++) {
+    for (let i = 1; i <= months; i++) {
       const dueDate = new Date(deblocageDate);
       dueDate.setMonth(dueDate.getMonth() + i);
       installments.push({
@@ -515,7 +522,6 @@ const App: React.FC = () => {
   };
 
   const handleUpdateCredit = (updatedCredit: Credit) => {
-    // On régénère l'échéancier si la durée ou le montant ont changé
     const creditWithInstallments = { 
       ...updatedCredit, 
       installments: generateInstallments(updatedCredit)
@@ -685,10 +691,10 @@ const App: React.FC = () => {
   };
 
   const isCreditSettled = (credit: Credit) => {
-    const totalCapitalRepaid = (credit.repayments || []).reduce((acc, r) => acc + r.capital, 0);
-    const totalInterestsRepaid = (credit.repayments || []).reduce((acc, r) => acc + r.interests, 0);
-    const capitalBalance = (credit.creditAccordeChiffre || 0) - totalCapitalRepaid;
-    const interestBalance = (credit.intTotal || 0) - totalInterestsRepaid;
+    const totalCapitalRepaid = (credit.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+    const totalInterestsRepaid = (credit.repayments || []).reduce((acc, r) => acc + (Number(r.interests) || 0), 0);
+    const capitalBalance = (Number(credit.creditAccordeChiffre) || 0) - totalCapitalRepaid;
+    const interestBalance = (Number(credit.intTotal) || 0) - totalInterestsRepaid;
     return capitalBalance <= 0 && interestBalance <= 0;
   };
 
@@ -696,12 +702,12 @@ const App: React.FC = () => {
     if (isCreditSettled(credit)) return 'payé';
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const totalRepaid = (credit.repayments || []).reduce((acc, r) => acc + r.capital + r.interests, 0);
+    const totalRepaidAll = (credit.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0) + (Number(r.interests) || 0), 0);
     const installments = credit.installments || [];
     
     const lateCount = installments.filter(inst => {
-      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
-      const isCovered = totalRepaid >= (cumulativeDue - 1); // tolerance 1 FCFA
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
+      const isCovered = totalRepaidAll >= (cumulativeDue - 1); // tolerance 1 FCFA
       return !isCovered && inst.dueDate < todayStr;
     }).length;
 
@@ -712,39 +718,39 @@ const App: React.FC = () => {
   };
 
   const getDossierHTML = (credit: Credit) => {
-    const totalRepaidAll = (credit.repayments || []).reduce((acc, r) => acc + r.capital + r.interests, 0);
+    const totalRepaidAll = (credit.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0) + (Number(r.interests) || 0), 0);
     const installments = credit.installments || [];
     
-    const monthlyCapital = (credit.dureeMois || 0) > 0 ? (credit.creditAccordeChiffre / credit.dureeMois) : 0;
-    const monthlyInterest = (credit.dureeMois || 0) > 0 ? ((credit.intTotal || 0) / credit.dureeMois) : 0;
-    const monthlyExpected = installments.length > 0 ? installments[0].amount : (monthlyCapital + monthlyInterest);
+    const monthlyCapital = (Number(credit.dureeMois) || 0) > 0 ? (Number(credit.creditAccordeChiffre) / Number(credit.dureeMois)) : 0;
+    const monthlyInterest = (Number(credit.dureeMois) || 0) > 0 ? ((Number(credit.intTotal) || 0) / Number(credit.dureeMois)) : 0;
+    const monthlyExpected = installments.length > 0 ? (Number(installments[0].amount) || 0) : (monthlyCapital + monthlyInterest);
     
-    const totalInstallments = installments.length || credit.dureeMois || 0;
+    const totalInstallmentsCount = installments.length || Number(credit.dureeMois) || 0;
     const paidCount = installments.length > 0
       ? installments.filter(inst => {
-          const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+          const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
           return totalRepaidAll >= (cumulativeDue - 1);
         }).length
-      : (monthlyExpected > 0 ? Math.min(totalInstallments, Math.floor((totalRepaidAll + 1) / monthlyExpected)) : 0);
+      : (monthlyExpected > 0 ? Math.min(totalInstallmentsCount, Math.floor((totalRepaidAll + 1) / monthlyExpected)) : 0);
 
     const todayStr = new Date().toISOString().split('T')[0];
     const oldestLateInstallment = installments.find(inst => {
-      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
       const isCovered = totalRepaidAll >= (cumulativeDue - 1);
       return !isCovered && inst.dueDate < todayStr;
     });
 
-    const repaidCap = (credit.repayments || []).reduce((acc, r) => acc + r.capital, 0);
-    const repaidInt = (credit.repayments || []).reduce((acc, r) => acc + r.interests, 0);
-    const capRest = credit.creditAccordeChiffre - repaidCap;
-    const intRest = (credit.intTotal || 0) - repaidInt;
+    const repaidCap = (credit.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+    const repaidInt = (credit.repayments || []).reduce((acc, r) => acc + (Number(r.interests) || 0), 0);
+    const capRest = (Number(credit.creditAccordeChiffre) || 0) - repaidCap;
+    const intRest = (Number(credit.intTotal) || 0) - repaidInt;
 
     return `
       <!DOCTYPE html>
       <html lang="fr">
       <head>
         <meta charset="UTF-8">
-        <title>Dossier de Crédit - ${credit.clientName}</title>
+        <title>Dossier de Crédit - ${credit.clientName || 'Client'}</title>
         <style>
           @page { size: A4; margin: 15mm; }
           body { font-family: 'Helvetica', 'Arial', sans-serif; color: #0f172a; line-height: 1.4; font-size: 10pt; margin: 0; padding: 0; background: #fff; }
@@ -784,29 +790,29 @@ const App: React.FC = () => {
               </div>
             </div>
             <div style="text-align: right;">
-              <div style="font-size: 14pt; font-weight: 900; color: #10b981;">DOSSIER N°: ${credit.dossierNo}</div>
+              <div style="font-size: 14pt; font-weight: 900; color: #10b981;">DOSSIER N°: ${credit.dossierNo || '-'}</div>
               <div style="font-size: 9pt; color: #64748b; margin-top: 5px;">Généré le: ${new Date().toLocaleString('fr-FR')}</div>
             </div>
           </div>
 
           <div class="report-title">
-            DOSSIER DE CRÉDIT - ${credit.creditType}
+            DOSSIER DE CRÉDIT - ${credit.creditType || 'ORDINAIRE'}
             ${oldestLateInstallment ? '<span class="badge-retard">RETARD</span>' : ''}
           </div>
 
           <div class="section">
             <div class="section-title">Informations du Client</div>
             <div class="grid">
-              <div class="item"><span class="label">Client:</span> <span class="value">${credit.clientCivilite} ${credit.clientName}</span></div>
-              <div class="item"><span class="label">Zone:</span> <span class="value">${credit.zone}</span></div>
+              <div class="item"><span class="label">Client:</span> <span class="value">${credit.clientCivilite || ''} ${credit.clientName || ''}</span></div>
+              <div class="item"><span class="label">Zone:</span> <span class="value">${credit.zone || '-'}</span></div>
               <div class="item"><span class="label">Agent Commercial:</span> <span class="value">${credit.agentCommercial || '-'}</span></div>
-              <div class="item"><span class="label">Profession:</span> <span class="value">${credit.profession}</span></div>
-              <div class="item"><span class="label">Téléphone:</span> <span class="value">${credit.tel}</span></div>
-              <div class="item"><span class="label">Revenu Mensuel:</span> <span class="value">${(credit.clientRevenuMensuel || 0).toLocaleString()} FCFA</span></div>
-              <div class="item"><span class="label">Adresse Domicile:</span> <span class="value">${credit.adresseDomicile}</span></div>
-              <div class="item"><span class="label">Compte Épargne:</span> <span class="value">${credit.noCompte}</span></div>
-              <div class="item"><span class="label">Compte Tontine:</span> <span class="value">${credit.noCompteTontine}</span></div>
-              <div class="item"><span class="label">Mise Tontine:</span> <span class="value">${credit.mise}</span></div>
+              <div class="item"><span class="label">Profession:</span> <span class="value">${credit.profession || '-'}</span></div>
+              <div class="item"><span class="label">Téléphone:</span> <span class="value">${credit.tel || '-'}</span></div>
+              <div class="item"><span class="label">Revenu Mensuel:</span> <span class="value">${(Number(credit.clientRevenuMensuel) || 0).toLocaleString()} FCFA</span></div>
+              <div class="item"><span class="label">Adresse Domicile:</span> <span class="value">${credit.adresseDomicile || '-'}</span></div>
+              <div class="item"><span class="label">Compte Épargne:</span> <span class="value">${credit.noCompte || '-'}</span></div>
+              <div class="item"><span class="label">Compte Tontine:</span> <span class="value">${credit.noCompteTontine || '-'}</span></div>
+              <div class="item"><span class="label">Mise Tontine:</span> <span class="value">${credit.mise || '-'}</span></div>
               ${oldestLateInstallment ? `<div class="item"><span class="label" style="color: #ef4444;">Statut:</span> <span class="value" style="color: #ef4444;">RETARD de ${getDelayDuration(oldestLateInstallment.dueDate)}</span></div>` : ''}
             </div>
           </div>
@@ -814,13 +820,13 @@ const App: React.FC = () => {
           <div class="section">
             <div class="section-title">Conditions de Financement</div>
             <div class="grid">
-              <div class="item"><span class="label">Capital Accordé:</span> <span class="value">${credit.creditAccordeChiffre.toLocaleString()} FCFA</span></div>
-              <div class="item"><span class="label">Durée:</span> <span class="value">${credit.dureeMois} Mois</span></div>
-              <div class="item"><span class="label">Date Déblocage:</span> <span class="value">${credit.dateDeblocage}</span></div>
-              <div class="item"><span class="label">Échéance Finale:</span> <span class="value">${credit.creditType === 'ORDINAIRE FIDELIA' ? credit.dateDernierRemboursement : credit.aRembourserLe}</span></div>
-              <div class="item"><span class="label">Intérêt Total:</span> <span class="value">${(credit.intTotal || 0).toLocaleString()} FCFA</span></div>
-              <div class="item"><span class="label">Utilisation:</span> <span class="value">${credit.utilisationCredit}</span></div>
-              <div class="item"><span class="label">Mensualités Payées:</span> <span class="value">${paidCount} / ${totalInstallments}</span></div>
+              <div class="item"><span class="label">Capital Accordé:</span> <span class="value">${(Number(credit.creditAccordeChiffre) || 0).toLocaleString()} FCFA</span></div>
+              <div class="item"><span class="label">Durée:</span> <span class="value">${credit.dureeMois || 0} Mois</span></div>
+              <div class="item"><span class="label">Date Déblocage:</span> <span class="value">${credit.dateDeblocage || '-'}</span></div>
+              <div class="item"><span class="label">Échéance Finale:</span> <span class="value">${credit.creditType === 'ORDINAIRE FIDELIA' ? (credit.dateDernierRemboursement || '-') : (credit.aRembourserLe || '-')}</span></div>
+              <div class="item"><span class="label">Intérêt Total:</span> <span class="value">${(Number(credit.intTotal) || 0).toLocaleString()} FCFA</span></div>
+              <div class="item"><span class="label">Utilisation:</span> <span class="value">${credit.utilisationCredit || '-'}</span></div>
+              <div class="item"><span class="label">Mensualités Payées:</span> <span class="value">${paidCount} / ${totalInstallmentsCount}</span></div>
               <div class="item"><span class="label">Restant Cap:</span> <span class="value" style="color: #16a34a;">${capRest.toLocaleString()} FCFA</span></div>
               <div class="item"><span class="label">Restant Int:</span> <span class="value" style="color: #2563eb;">${intRest.toLocaleString()} FCFA</span></div>
             </div>
@@ -829,10 +835,10 @@ const App: React.FC = () => {
           <div class="section">
             <div class="section-title">Garanties & Cautions</div>
             <div class="grid">
-              <div class="item"><span class="label">Nom Caution:</span> <span class="value">${credit.cautionCivilite} ${credit.cautionNom} ${credit.cautionPrenoms}</span></div>
-              <div class="item"><span class="label">Tél Caution:</span> <span class="value">${credit.cautionTel}</span></div>
-              <div class="item"><span class="label">Montant Cautionné:</span> <span class="value">${(credit.cautionPretInteretsChiffre || 0).toLocaleString()} FCFA</span></div>
-              <div class="item"><span class="label">Adresse Caution:</span> <span class="value">${credit.cautionAdresse}</span></div>
+              <div class="item"><span class="label">Nom Caution:</span> <span class="value">${credit.cautionCivilite || ''} ${credit.cautionNom || ''} ${credit.cautionPrenoms || ''}</span></div>
+              <div class="item"><span class="label">Tél Caution:</span> <span class="value">${credit.cautionTel || '-'}</span></div>
+              <div class="item"><span class="label">Montant Cautionné:</span> <span class="value">${(Number(credit.cautionPretInteretsChiffre) || 0).toLocaleString()} FCFA</span></div>
+              <div class="item"><span class="label">Adresse Caution:</span> <span class="value">${credit.cautionAdresse || '-'}</span></div>
             </div>
           </div>
 
@@ -852,10 +858,10 @@ const App: React.FC = () => {
                 ${(credit.repayments || []).length > 0 ? credit.repayments.map(r => `
                   <tr>
                     <td>${r.date}</td>
-                    <td style="text-align: right;">${r.capital.toLocaleString()}</td>
-                    <td style="text-align: right;">${r.interests.toLocaleString()}</td>
-                    <td style="text-align: right; font-weight: bold;">${(r.capital + r.interests).toLocaleString()}</td>
-                    <td>${r.username}</td>
+                    <td style="text-align: right;">${(Number(r.capital) || 0).toLocaleString()}</td>
+                    <td style="text-align: right;">${(Number(r.interests) || 0).toLocaleString()}</td>
+                    <td style="text-align: right; font-weight: bold;">${((Number(r.capital) || 0) + (Number(r.interests) || 0)).toLocaleString()}</td>
+                    <td>${r.username || '-'}</td>
                   </tr>
                 `).join('') : '<tr><td colspan="5" style="text-align: center; color: #94a3b8;">Aucun remboursement enregistré</td></tr>'}
               </tbody>
@@ -901,34 +907,34 @@ const App: React.FC = () => {
 
   const handleExportTable = (data: Credit[], filename: string) => {
     const tableRows = data.map(c => {
-      const repaidCap = (c.repayments || []).reduce((acc, r) => acc + r.capital, 0);
-      const repaidInt = (c.repayments || []).reduce((acc, r) => acc + r.interests, 0);
-      const capRest = c.creditAccordeChiffre - repaidCap;
-      const intRest = (c.intTotal || 0) - repaidInt;
+      const repaidCap = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+      const repaidInt = (c.repayments || []).reduce((acc, r) => acc + (Number(r.interests) || 0), 0);
+      const capRest = (Number(c.creditAccordeChiffre) || 0) - repaidCap;
+      const intRest = (Number(c.intTotal) || 0) - repaidInt;
       const echeance = c.creditType === 'ORDINAIRE FIDELIA' ? (c.dateDernierRemboursement || '-') : (c.aRembourserLe || '-');
       
       const totalRepaidAll = repaidCap + repaidInt;
       const installments = c.installments || [];
       
-      const mCap = (c.dureeMois || 0) > 0 ? (c.creditAccordeChiffre / c.dureeMois) : 0;
-      const mInt = (c.dureeMois || 0) > 0 ? ((c.intTotal || 0) / c.dureeMois) : 0;
-      const mExpected = installments.length > 0 ? installments[0].amount : (mCap + mInt);
-      const totalInst = installments.length || c.dureeMois || 0;
+      const mCap = (Number(c.dureeMois) || 0) > 0 ? (Number(c.creditAccordeChiffre) / Number(c.dureeMois)) : 0;
+      const mInt = (Number(c.dureeMois) || 0) > 0 ? ((Number(c.intTotal) || 0) / Number(c.dureeMois)) : 0;
+      const mExpected = installments.length > 0 ? (Number(installments[0].amount) || 0) : (mCap + mInt);
+      const totalInst = installments.length || Number(c.dureeMois) || 0;
       
       const paidCount = installments.length > 0
         ? installments.filter(inst => {
-            const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+            const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
             return totalRepaidAll >= (cumulativeDue - 1);
           }).length
         : (mExpected > 0 ? Math.min(totalInst, Math.floor((totalRepaidAll + 1) / mExpected)) : 0);
 
       return `
         <tr>
-          <td>${c.dossierNo}</td>
-          <td>${c.clientName}</td>
+          <td>${c.dossierNo || '-'}</td>
+          <td>${c.clientName || '-'}</td>
           <td>${c.agentCommercial || '-'}</td>
-          <td>${c.creditType}</td>
-          <td style="text-align: right;">${c.creditAccordeChiffre.toLocaleString()}</td>
+          <td>${c.creditType || '-'}</td>
+          <td style="text-align: right;">${(Number(c.creditAccordeChiffre) || 0).toLocaleString()}</td>
           <td style="text-align: right; font-weight: bold; color: #16a34a;">${capRest.toLocaleString()}</td>
           <td style="text-align: right; color: #2563eb;">${intRest.toLocaleString()}</td>
           <td style="text-align: center;">${paidCount} / ${totalInst}</td>
@@ -1006,11 +1012,11 @@ const App: React.FC = () => {
     if (!searchTerm) return list;
     const lowerSearch = searchTerm.toLowerCase();
     return list.filter(c => 
-      c.clientName.toLowerCase().includes(lowerSearch) || 
-      (c.surNom && c.surNom.toLowerCase().includes(lowerSearch)) ||
-      c.dossierNo.toLowerCase().includes(lowerSearch) ||
-      (c.noCompte && c.noCompte.toLowerCase().includes(lowerSearch)) ||
-      (c.noCompteTontine && c.noCompteTontine.toLowerCase().includes(lowerSearch))
+      (c.clientName || '').toLowerCase().includes(lowerSearch) || 
+      (c.surNom || '').toLowerCase().includes(lowerSearch) ||
+      (c.dossierNo || '').toLowerCase().includes(lowerSearch) ||
+      (c.noCompte || '').toLowerCase().includes(lowerSearch) ||
+      (c.noCompteTontine || '').toLowerCase().includes(lowerSearch)
     );
   };
 
@@ -1018,9 +1024,9 @@ const App: React.FC = () => {
     if (!searchTerm) return list;
     const lowerSearch = searchTerm.toLowerCase();
     return list.filter(l => 
-      l.username.toLowerCase().includes(lowerSearch) || 
-      l.action.toLowerCase().includes(lowerSearch) ||
-      (l.details && l.details.toLowerCase().includes(lowerSearch))
+      (l.username || '').toLowerCase().includes(lowerSearch) || 
+      (l.action || '').toLowerCase().includes(lowerSearch) ||
+      (l.details || '').toLowerCase().includes(lowerSearch)
     );
   };
 
@@ -1169,14 +1175,14 @@ const App: React.FC = () => {
 
     // Status Filter logic
     const todayStr = new Date().toISOString().split('T')[0];
-    const totalRepaidAll = (credit.repayments || []).reduce((acc, r) => acc + r.capital + r.interests, 0);
+    const totalRepaidAll = (credit.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0) + (Number(r.interests) || 0), 0);
     const installments = credit.installments || [];
     const echeance = credit.creditType === 'ORDINAIRE FIDELIA' ? credit.dateDernierRemboursement : credit.aRembourserLe;
     
     const isLate = status === 'en retard';
     
     const nextInstallment = installments.find(inst => {
-      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
       return totalRepaidAll < (cumulativeDue - 1);
     });
 
@@ -1218,9 +1224,9 @@ const App: React.FC = () => {
   
   const dbPar30Credits = dbActiveCredits.filter(c => {
     const installments = c.installments || [];
-    const totalRepaid = (c.repayments || []).reduce((acc, r) => acc + r.capital + r.interests, 0);
+    const totalRepaid = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0) + (Number(r.interests) || 0), 0);
     const oldestLateInstallment = installments.find(inst => {
-      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + i.amount, 0);
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
       return totalRepaid < (cumulativeDue - 1) && inst.dueDate < dbToday;
     });
 
@@ -1233,25 +1239,25 @@ const App: React.FC = () => {
   });
 
   const dbTotalOutstanding = dbActiveCredits.reduce((acc, c) => {
-    const repaid = (c.repayments || []).reduce((ra, r) => ra + r.capital, 0);
-    return acc + ((c.creditAccordeChiffre || 0) - repaid);
+    const repaid = (c.repayments || []).reduce((ra, r) => ra + (Number(r.capital) || 0), 0);
+    return acc + ((Number(c.creditAccordeChiffre) || 0) - repaid);
   }, 0);
 
   const dbPar1Amount = dbLateCredits.reduce((acc, c) => {
-    const repaid = (c.repayments || []).reduce((ra, r) => ra + r.capital, 0);
-    return acc + ((c.creditAccordeChiffre || 0) - repaid);
+    const repaid = (c.repayments || []).reduce((ra, r) => ra + (Number(r.capital) || 0), 0);
+    return acc + ((Number(c.creditAccordeChiffre) || 0) - repaid);
   }, 0);
 
   const dbPar30Amount = dbPar30Credits.reduce((acc, c) => {
-    const repaid = (c.repayments || []).reduce((ra, r) => ra + r.capital, 0);
-    return acc + ((c.creditAccordeChiffre || 0) - repaid);
+    const repaid = (c.repayments || []).reduce((ra, r) => ra + (Number(r.capital) || 0), 0);
+    return acc + ((Number(c.creditAccordeChiffre) || 0) - repaid);
   }, 0);
 
   const dbPar1Rate = dbTotalOutstanding > 0 ? (dbPar1Amount / dbTotalOutstanding) * 100 : 0;
   const dbPar30Rate = dbTotalOutstanding > 0 ? (dbPar30Amount / dbTotalOutstanding) * 100 : 0;
 
-  const dbTotalCapitalAccorde = dashboardCredits.reduce((acc, c) => acc + (c.creditAccordeChiffre || 0), 0);
-  const dbTotalCapitalRembourse = dashboardCredits.reduce((acc, r) => acc + (r.repayments || []).reduce((ra, rb) => ra + rb.capital, 0), 0);
+  const dbTotalCapitalAccorde = dashboardCredits.reduce((acc, c) => acc + (Number(c.creditAccordeChiffre) || 0), 0);
+  const dbTotalCapitalRembourse = dashboardCredits.reduce((acc, r) => acc + (r.repayments || []).reduce((ra, rb) => ra + (Number(rb.capital) || 0), 0), 0);
   const dbRecoveryRate = dbTotalCapitalAccorde > 0 ? (dbTotalCapitalRembourse / dbTotalCapitalAccorde) * 100 : 0;
 
   const dbTotalMonsieur = dashboardCredits.filter(c => c.clientCivilite === 'Monsieur').length;
@@ -1391,6 +1397,13 @@ const App: React.FC = () => {
                     <span className="text-sm">Historique</span>
                   </button>
                 )}
+                <button 
+                  onClick={() => setActiveTab('migration')}
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'migration' ? 'bg-[#10b981] text-white shadow-lg shadow-emerald-500/30 font-black' : 'text-slate-100 hover:bg-slate-800 font-bold'}`}
+                >
+                  <span className="text-xl">🚀</span>
+                  <span className="text-sm">Migration</span>
+                </button>
               </div>
             </nav>
           )}
@@ -1554,8 +1567,8 @@ const App: React.FC = () => {
                        <h3 className="text-slate-400 text-xs font-bold uppercase mb-2">Intérêts non perçus</h3>
                        <p className="text-2xl font-bold">
                          {dbActiveCredits.reduce((acc, c) => {
-                           const repaid = (c.repayments || []).reduce((ra, r) => ra + r.interests, 0);
-                           return acc + ((c.intTotal || 0) - repaid);
+                           const repaid = (c.repayments || []).reduce((ra, r) => ra + (Number(r.interests) || 0), 0);
+                           return acc + ((Number(c.intTotal) || 0) - repaid);
                          }, 0).toLocaleString()} FCFA
                        </p>
                     </div>
@@ -1955,9 +1968,163 @@ const App: React.FC = () => {
             </section>
           )}
 
+          {activeTab === 'migration' && (isAdmin || isDirector) && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <h2 className="text-3xl font-black text-slate-900 mb-8 border-b pb-4 uppercase tracking-tight">Migration de Données</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-200">
+                  <h3 className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-4">Exporter les Données</h3>
+                  <p className="text-xs text-slate-500 mb-4 font-bold uppercase">Sauvegardez l'intégralité de cette institution dans un fichier JSON pour migration ou backup.</p>
+                  <button 
+                    onClick={() => {
+                      const data = { credits, users, logs, microfinance, auto_deactivation: autoDeactivation, credit_types: creditTypes };
+                      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `migration_${microfinance_code_actif}_${new Date().toISOString().split('T')[0]}.json`;
+                      a.click();
+                      if (currentUser && currentUserRole) addLog('Exportation de migration effectuée', currentUser, currentUserRole);
+                    }}
+                    className="w-full bg-slate-800 text-white font-black py-4 rounded-xl uppercase text-xs tracking-widest shadow-lg active:scale-95 transition-all"
+                  >
+                    📥 Télécharger l'export JSON
+                  </button>
+                </div>
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-200">
+                  <h3 className="text-sm font-black text-orange-600 uppercase tracking-widest mb-4">Importer les Données</h3>
+                  <p className="text-xs text-slate-500 mb-4 font-bold uppercase">Attention : L'importation remplacera les données actuelles de cette institution.</p>
+                  <textarea 
+                    id="importData"
+                    placeholder="Collez le contenu du fichier JSON ici..."
+                    className="w-full h-32 bg-white border border-slate-200 rounded-xl p-3 text-xs font-mono mb-4 outline-none focus:ring-2 focus:ring-orange-500 shadow-inner"
+                  ></textarea>
+                  <input
+                    type="file"
+                    id="importFileInput"
+                    accept=".json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          const content = event.target?.result as string;
+                          const area = document.getElementById('importData') as HTMLTextAreaElement;
+                          if (area) area.value = content;
+                        };
+                        reader.readAsText(file);
+                      }
+                      e.target.value = '';
+                    }}
+                  />
+                  <div className="flex flex-col gap-3">
+                    <button 
+                      onClick={() => {
+                        document.getElementById('importFileInput')?.click();
+                      }}
+                      className="w-full bg-orange-600 text-white font-black py-4 rounded-xl uppercase text-xs tracking-widest shadow-lg active:scale-95 transition-all"
+                    >
+                      📥 Importer
+                    </button>
+                    <button 
+                      onClick={() => {
+                        const activeCode = microfinance_code_actif || '';
+                        const area = document.getElementById('importData') as HTMLTextAreaElement;
+                        
+                        const applyImport = async (jsonStr: string) => {
+                          try {
+                            const imported = JSON.parse(jsonStr);
+                            if (window.confirm("Voulez-vous vraiment écraser les données actuelles par cet import ? Cette action est irréversible.")) {
+                              
+                              // Désactivation temporaire de la synchronisation automatique pendant l'import
+                              setIsInitialLoadDone(false);
+
+                              const finalCredits = imported.credits?.map((c: any) => ({
+                                ...c,
+                                microfinance_code: activeCode,
+                                repayments: (c.repayments || []).map((r: any) => ({ ...r, microfinance_code: activeCode })),
+                                recoveryActions: (c.recoveryActions || []).map((ra: any) => ({ ...ra, microfinance_code: activeCode }))
+                              })) || [];
+
+                              const finalUsers = imported.users?.map((u: any) => ({ ...u, microfinance_code: activeCode })) || [];
+                              const finalLogs = imported.logs?.map((l: any) => ({ ...l, microfinance_code: activeCode })) || [];
+                              const finalMF = imported.microfinance || microfinance;
+                              const finalAuto = imported.auto_deactivation || autoDeactivation;
+                              const finalTypes = imported.credit_types || creditTypes;
+
+                              // Persistance locale immédiate
+                              localStorage.setItem(`cg_${activeCode}_credits`, JSON.stringify(finalCredits));
+                              localStorage.setItem(`cg_${activeCode}_users`, JSON.stringify(finalUsers));
+                              localStorage.setItem(`cg_${activeCode}_logs`, JSON.stringify(finalLogs));
+                              localStorage.setItem(`cg_${activeCode}_microfinance`, JSON.stringify(finalMF));
+                              localStorage.setItem(`cg_${activeCode}_auto_deactivation`, JSON.stringify(finalAuto));
+                              localStorage.setItem(`cg_${activeCode}_credit_types`, JSON.stringify(finalTypes));
+
+                              // Mise à jour des états
+                              setCredits(finalCredits);
+                              setUsers(finalUsers);
+                              setLogs(finalLogs);
+                              setMicrofinance(finalMF);
+                              setAutoDeactivation(finalAuto);
+                              setCreditTypes(finalTypes);
+
+                              // Synchronisation Supabase atomique unique forcée
+                              const payload = {
+                                code: activeCode,
+                                credits: finalCredits,
+                                users: finalUsers,
+                                logs: finalLogs,
+                                microfinance: finalMF,
+                                auto_deactivation: finalAuto,
+                                credit_types: finalTypes
+                              };
+
+                              await syncWithSupabase(payload);
+                              
+                              // Réactivation des hooks après la fin de l'opération asynchrone
+                              setIsInitialLoadDone(true);
+
+                              alert("Restauration réussie ! Les données ont été restaurées avec succès.");
+                              if (currentUser && currentUserRole) addLog('Restauration effectuée', currentUser, currentUserRole);
+                              if (area) area.value = '';
+                            }
+                          } catch (err) {
+                            setIsInitialLoadDone(true);
+                            alert("Échec de la restauration : Le format JSON est invalide ou une erreur réseau est survenue.");
+                          }
+                        };
+
+                        if (area && area.value.trim()) {
+                          applyImport(area.value);
+                        } else {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = '.json';
+                          input.onchange = (e: any) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (event) => applyImport(event.target?.result as string);
+                              reader.readAsText(file);
+                            }
+                          };
+                          input.click();
+                        }
+                      }}
+                      className="w-full bg-orange-600 text-white font-black py-4 rounded-xl uppercase text-xs tracking-widest shadow-lg active:scale-95 transition-all"
+                    >
+                      📤 Restaurer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
           {activeTab === 'developer' && isAdmin && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-              <h2 className="text-3xl font-black mb-8 text-slate-900 border-b pb-4 uppercase tracking-tight">Espace Développeur</h2>
+              <h2 className="text-3xl font-black text-slate-900 mb-8 border-b pb-4 uppercase tracking-tight">Espace Développeur</h2>
               <div className="p-8 bg-slate-900 rounded-3xl border border-slate-700 text-white flex flex-col items-center justify-center text-center shadow-xl">
                 <span className="text-6xl mb-4">👨‍💻</span>
                 <div>

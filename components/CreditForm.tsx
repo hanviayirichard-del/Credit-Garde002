@@ -13,6 +13,45 @@ interface CreditFormProps {
 
 const ZONES_LIST = ['01','01A','02','02A','03','03A','04','04A','05','05A','06','06A','07','07A','08','08A','09','09A','Personnel','VIP','Autres'];
 
+const PROFESSIONS_LIST = [
+  'Agriculteur',
+  'Artisan',
+  'Chauffeur',
+  'Commerçant',
+  'Couturier',
+  'Coiffeur',
+  'Enseignant',
+  'Fonctionnaire',
+  'Ménagère',
+  'Mécanicien',
+  'Revendeur',
+  'Salarié',
+  'Autre'
+];
+
+const UTILISATION_LIST = [
+  'Commerce',
+  'Agriculture',
+  'Élevage',
+  'Artisanat',
+  'Prestation de services',
+  'Scolarité / Éducation',
+  'Santé',
+  'Consommation / Social',
+  'Construction / Immobilier',
+  'Transport',
+  'Autre'
+];
+
+const APPRECIATION_LIST = [
+  'Très Bien',
+  'Bien',
+  'Moyen',
+  'Mauvais',
+  'Contentieux',
+  'Pas d\'antécédent'
+];
+
 const numberToFrench = (n: number): string => {
   if (n === 0) return "ZÉRO";
   const units = ["", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf"];
@@ -228,14 +267,54 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
 
   useEffect(() => {
     if (!readOnly && formData.creditType === 'ORDINAIRE FIDELIA') {
+      // CA Total est automatiquement égal au crédit accordé
+      if (formData.caTotal !== formData.creditAccordeChiffre) {
+        setFormData(prev => ({ ...prev, caTotal: formData.creditAccordeChiffre }));
+        return;
+      }
+
       const ca = parseFloat(formData.caTotal) || 0;
       const it = parseFloat(formData.intTotal) || 0;
       const sum = ca + it;
+      const duree = parseInt(formData.dureeMois) || 0;
+
+      const updates: any = {};
       if (formData.totalDu !== sum.toString()) {
-        setFormData(prev => ({ ...prev, totalDu: sum.toString() }));
+        updates.totalDu = sum.toString();
+      }
+
+      if (duree > 0) {
+        const caM = Math.round(ca / duree).toString();
+        const iM = Math.round(it / duree).toString();
+        if (formData.caMensuel !== caM) updates.caMensuel = caM;
+        if (formData.iMensuel !== iM) updates.iMensuel = iM;
+      } else {
+        if (formData.caMensuel !== '') updates.caMensuel = '';
+        if (formData.iMensuel !== '') updates.iMensuel = '';
+      }
+
+      if (Object.keys(updates).length > 0) {
+        setFormData(prev => ({ ...prev, ...updates }));
       }
     }
-  }, [formData.caTotal, formData.intTotal, formData.creditType, readOnly]);
+  }, [formData.caTotal, formData.intTotal, formData.creditAccordeChiffre, formData.dureeMois, formData.creditType, readOnly]);
+
+  useEffect(() => {
+    if (!readOnly && formData.cautionSolidariteNom !== formData.clientName) {
+      setFormData(prev => ({ ...prev, cautionSolidariteNom: formData.clientName }));
+    }
+  }, [formData.clientName, readOnly, formData.cautionSolidariteNom]);
+
+  useEffect(() => {
+    if (!readOnly) {
+      const credit = parseFloat(formData.creditAccordeChiffre) || 0;
+      const interet = parseFloat(formData.intTotal) || 0;
+      const total = (credit + interet).toString();
+      if (formData.cautionPretInteretsChiffre !== total) {
+        setFormData(prev => ({ ...prev, cautionPretInteretsChiffre: total }));
+      }
+    }
+  }, [formData.creditAccordeChiffre, formData.intTotal, readOnly]);
 
   useEffect(() => {
     if (!readOnly) {
@@ -441,7 +520,21 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
             {renderField("Adresse Service", "adresseService")}
           </div>
 
-          {renderField("Profession", "profession")}
+          <div className="flex flex-col space-y-1">
+            <label className="text-xs font-black text-gray-700 uppercase tracking-widest">Profession</label>
+            <select
+              name="profession"
+              value={formData.profession}
+              onChange={handleChange}
+              disabled={readOnly}
+              className={`border-2 border-gray-200 rounded-xl p-3 text-sm outline-none transition-all ${readOnly ? 'bg-gray-100' : 'bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-bold shadow-sm'}`}
+            >
+              <option value="">Sélectionner...</option>
+              {PROFESSIONS_LIST.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
           {renderField("Tel", "tel")}
           {renderField("Revenu Mensuel", "clientRevenuMensuel", "number")}
 
@@ -465,12 +558,27 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
 
           {renderField("Crédit (Chiffre)", "creditAccordeChiffre", "number")}
           <div className="md:col-span-2">
-            {renderField("Crédit (Lettre)", "creditAccordeLettre")}
+            {renderField("Caution (Lettre)", "creditAccordeLettre")}
           </div>
 
           {renderField("Durée (Mois)", "dureeMois", "number")}
           {renderField("Frais d'étude", "fraisEtudeDossier", "number")}
-          {renderField("Utilisation", "utilisationCredit")}
+          
+          <div className="flex flex-col space-y-1">
+            <label className="text-xs font-black text-gray-700 uppercase tracking-widest">Utilisation</label>
+            <select
+              name="utilisationCredit"
+              value={formData.utilisationCredit}
+              onChange={handleChange}
+              disabled={readOnly}
+              className={`border-2 border-gray-200 rounded-xl p-3 text-sm outline-none transition-all ${readOnly ? 'bg-gray-100' : 'bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-bold shadow-sm'}`}
+            >
+              <option value="">Sélectionner...</option>
+              {UTILISATION_LIST.map(u => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          </div>
 
           {renderField("Déblocage", "dateDeblocage", "date")}
           {formData.creditType === 'ORDINAIRE FIDELIA' ? (
@@ -482,7 +590,21 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
           {renderField("Crédit Antérieur", "nbreCreditAnterieur", "number")}
           
           <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
-            {renderField("Appréciation", "appreciation")}
+            <div className="flex flex-col space-y-1">
+              <label className="text-xs font-black text-gray-700 uppercase tracking-widest">Appréciation</label>
+              <select
+                name="appreciation"
+                value={formData.appreciation}
+                onChange={handleChange}
+                disabled={readOnly}
+                className={`border-2 border-gray-200 rounded-xl p-3 text-sm outline-none transition-all ${readOnly ? 'bg-gray-100' : 'bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-bold shadow-sm'}`}
+              >
+                <option value="">Sélectionner...</option>
+                {APPRECIATION_LIST.map(a => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+            </div>
             <div className="flex flex-col space-y-1">
               <label className="text-xs font-black text-gray-700 uppercase tracking-widest">Avis Promoteur</label>
               <select
@@ -534,7 +656,21 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
           {renderField("Nom", "cautionNom")}
           {renderField("Prénom(s)", "cautionPrenoms")}
           {renderField("Sur nom", "cautionSurnom")}
-          {renderField("Profession", "cautionProfession")}
+          <div className="flex flex-col space-y-1">
+            <label className="text-xs font-black text-gray-700 uppercase tracking-widest">Profession</label>
+            <select
+              name="cautionProfession"
+              value={formData.cautionProfession}
+              onChange={handleChange}
+              disabled={readOnly}
+              className={`border-2 border-gray-200 rounded-xl p-3 text-sm outline-none transition-all ${readOnly ? 'bg-gray-100' : 'bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-bold shadow-sm'}`}
+            >
+              <option value="">Sélectionner...</option>
+              {PROFESSIONS_LIST.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
           {renderField("Adresse", "cautionAdresse")}
           {renderField("Adresse Domicile", "cautionAdresseDomicile")}
           {renderField("Tél", "cautionTel")}
