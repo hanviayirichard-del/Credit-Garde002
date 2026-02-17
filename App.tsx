@@ -79,6 +79,7 @@ const App: React.FC = () => {
   const [codeError, setCodeError] = useState('');
   const [isInitialLoadDone, setIsInitialLoadDone] = useState(false);
   const [isSyncError, setIsSyncError] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const activeMF = microfinances.find(mf => mf.code === microfinance_code_actif);
 
@@ -132,7 +133,7 @@ const App: React.FC = () => {
     } catch(e) { return ['ORDINAIRE FIDELIA', 'MOKPOKPO PRE-PAYER']; }
   });
   
-  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration'>('tips');
+  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration' | 'forecast'>('tips');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<'Administrateur' | 'Directeur' | 'Opérateur' | 'Agents commerciaux' | 'Autres' | null>(null);
@@ -152,6 +153,14 @@ const App: React.FC = () => {
   const [settledFilterType, setSettledFilterType] = useState<string>('Tous');
   const [settledFilterZone, setSettledFilterZone] = useState<string>('Toutes');
 
+  // Filtres Prévisions
+  const [forecastStart, setForecastStart] = useState(new Date().toISOString().split('T')[0]);
+  const [forecastEnd, setForecastEnd] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  });
+
   // Formulaire de connexion
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -170,6 +179,18 @@ const App: React.FC = () => {
 
   // Formulaire local pour les types de crédits
   const [newCreditTypeName, setNewCreditTypeName] = useState('');
+
+  // SÉCURITÉ : Empêcher la fermeture de l'onglet si une synchronisation est en cours
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isSyncing) {
+        e.preventDefault();
+        e.returnValue = "Une sauvegarde est en cours vers le serveur. Voulez-vous vraiment quitter ? Vos données non synchronisées risquent d'être perdues.";
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isSyncing]);
 
   // CHARGEMENT INITIAL DE LA LISTE DES INSTITUTIONS DEPUIS SUPABASE
   useEffect(() => {
@@ -246,15 +267,15 @@ const App: React.FC = () => {
       } catch (e) {
         console.error("Erreur de chargement Supabase:", e);
         setIsSyncError(true);
-        // On ne met PAS isInitialLoadDone à true pour bloquer l'accès et éviter l'écrasement
       }
     };
     loadFromSupabase();
   }, [microfinance_code_actif]);
 
   const syncWithSupabase = async (overrideData?: any) => {
-    // Sécurité critique : On ne synchronise PAS si le chargement initial a échoué (sauf override de restauration)
     if (!microfinance_code_actif || (!isInitialLoadDone && !overrideData) || (isSyncError && !overrideData)) return;
+    
+    setIsSyncing(true);
     try {
       const payload = overrideData || {
         code: microfinance_code_actif,
@@ -271,6 +292,8 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Erreur de synchronisation Supabase:", e);
       setIsSyncError(true);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -278,47 +301,35 @@ const App: React.FC = () => {
     localStorage.setItem('cg_global_microfinances', JSON.stringify(microfinances));
   }, [microfinances]);
 
+  // POINT DE SYNCHRONISATION UNIQUE POUR TOUT L'ÉTAT AVEC SÉCURITÉ DE DEBOUNCE
   useEffect(() => {
     if (microfinance_code_actif) {
+      // Mise à jour locale immédiate (sécurité n°1)
       localStorage.setItem(`cg_${microfinance_code_actif}_credits`, JSON.stringify(credits));
-      if (isInitialLoadDone) syncWithSupabase();
-    }
-  }, [credits, microfinance_code_actif, isInitialLoadDone]);
-
-  useEffect(() => {
-    if (microfinance_code_actif) {
       localStorage.setItem(`cg_${microfinance_code_actif}_users`, JSON.stringify(users));
-      if (isInitialLoadDone) syncWithSupabase();
-    }
-  }, [users, microfinance_code_actif, isInitialLoadDone]);
-
-  useEffect(() => {
-    if (microfinance_code_actif) {
       localStorage.setItem(`cg_${microfinance_code_actif}_logs`, JSON.stringify(logs));
-      if (isInitialLoadDone) syncWithSupabase();
-    }
-  }, [logs, microfinance_code_actif, isInitialLoadDone]);
-
-  useEffect(() => {
-    if (microfinance_code_actif) {
       localStorage.setItem(`cg_${microfinance_code_actif}_microfinance`, JSON.stringify(microfinance));
-      if (isInitialLoadDone) syncWithSupabase();
-    }
-  }, [microfinance, microfinance_code_actif, isInitialLoadDone]);
-
-  useEffect(() => {
-    if (microfinance_code_actif) {
       localStorage.setItem(`cg_${microfinance_code_actif}_auto_deactivation`, JSON.stringify(autoDeactivation));
-      if (isInitialLoadDone) syncWithSupabase();
-    }
-  }, [autoDeactivation, microfinance_code_actif, isInitialLoadDone]);
-
-  useEffect(() => {
-    if (microfinance_code_actif) {
       localStorage.setItem(`cg_${microfinance_code_actif}_credit_types`, JSON.stringify(creditTypes));
-      if (isInitialLoadDone) syncWithSupabase();
+      
+      // SÉCURITÉ : Synchronisation Cloud avec Debounce pour éviter les race conditions
+      if (isInitialLoadDone) {
+        const timer = setTimeout(() => {
+          syncWithSupabase();
+        }, 1000); // 1 seconde de délai avant l'envoi pour grouper les changements
+        return () => clearTimeout(timer);
+      }
     }
-  }, [creditTypes, microfinance_code_actif, isInitialLoadDone]);
+  }, [
+    credits, 
+    users, 
+    logs, 
+    microfinance, 
+    autoDeactivation, 
+    creditTypes, 
+    microfinance_code_actif, 
+    isInitialLoadDone
+  ]);
 
   useEffect(() => {
     setNewUserMicrofinanceCode(microfinance_code_actif || '');
@@ -906,6 +917,10 @@ const App: React.FC = () => {
   };
 
   const handleExportTable = (data: Credit[], filename: string) => {
+    let totalCapitalInitial = 0;
+    let totalCapitalRestant = 0;
+    let totalInteretsDus = 0;
+
     const tableRows = data.map(c => {
       const repaidCap = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
       const repaidInt = (c.repayments || []).reduce((acc, r) => acc + (Number(r.interests) || 0), 0);
@@ -927,6 +942,10 @@ const App: React.FC = () => {
             return totalRepaidAll >= (cumulativeDue - 1);
           }).length
         : (mExpected > 0 ? Math.min(totalInst, Math.floor((totalRepaidAll + 1) / mExpected)) : 0);
+
+      totalCapitalInitial += (Number(c.creditAccordeChiffre) || 0);
+      totalCapitalRestant += capRest;
+      totalInteretsDus += intRest;
 
       return `
         <tr>
@@ -958,6 +977,7 @@ const App: React.FC = () => {
           th { background-color: #f1f5f9; border: 1px solid #e2e8f0; padding: 10px; text-align: left; font-size: 10px; font-weight: 900; text-transform: uppercase; color: #475569; -webkit-print-color-adjust: exact; }
           td { border: 1px solid #e2e8f0; padding: 8px; font-size: 10px; }
           tr:nth-child(even) { background-color: #f8fafc; -webkit-print-color-adjust: exact; }
+          .total-row { background-color: #e2e8f0 !important; font-weight: 900; -webkit-print-color-adjust: exact; }
           .footer { margin-top: 20px; font-size: 8px; color: #94a3b8; text-align: right; font-style: italic; }
         </style>
       </head>
@@ -987,6 +1007,13 @@ const App: React.FC = () => {
           </thead>
           <tbody>
             ${tableRows}
+            <tr class="total-row">
+              <td colspan="4" style="text-align: right;">TOTAUX :</td>
+              <td style="text-align: right;">${totalCapitalInitial.toLocaleString()}</td>
+              <td style="text-align: right;">${totalCapitalRestant.toLocaleString()}</td>
+              <td style="text-align: right;">${totalInteretsDus.toLocaleString()}</td>
+              <td colspan="2"></td>
+            </tr>
           </tbody>
         </table>
         <div class="footer">Document confidentiel - Crédit-Garde</div>
@@ -1002,6 +1029,82 @@ const App: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExportForecast = (data: any[], total: number) => {
+    const tableRows = data.map(fi => `
+      <tr>
+        <td>${fi.dueDate}</td>
+        <td>${fi.client}</td>
+        <td>${fi.dossierNo}</td>
+        <td>${fi.zone}</td>
+        <td style="text-align: right; font-weight: bold; color: #10b981;">${fi.amount.toLocaleString()} FCFA</td>
+      </tr>
+    `).join("");
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="fr">
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          @page { size: A4; margin: 10mm; }
+          body { font-family: 'Segoe UI', Tahoma, sans-serif; color: #1e293b; margin: 0; padding: 20px; background: white; }
+          .header { border-bottom: 3px solid #10b981; padding-bottom: 15px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: flex-end; }
+          .mf-name { font-size: 24px; font-weight: 900; color: #0f172a; text-transform: uppercase; margin: 0; }
+          .report-title { font-size: 16px; font-weight: 700; color: #10b981; margin: 5px 0 0 0; }
+          .summary { background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0; font-size: 12px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th { background-color: #f1f5f9; border: 1px solid #e2e8f0; padding: 10px; text-align: left; font-size: 10px; font-weight: 900; text-transform: uppercase; color: #475569; -webkit-print-color-adjust: exact; }
+          td { border: 1px solid #e2e8f0; padding: 8px; font-size: 10px; }
+          tr:nth-child(even) { background-color: #f8fafc; -webkit-print-color-adjust: exact; }
+          .footer { margin-top: 20px; font-size: 8px; color: #94a3b8; text-align: right; font-style: italic; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div class="mf-name">${microfinance.name || 'CRÉDIT-GARDE'}</div>
+            <div class="report-title">Prévisions des Remboursements</div>
+          </div>
+          <div style="text-align: right; font-size: 10px; font-weight: bold; color: #64748b;">
+            Période: ${forecastStart} au ${forecastEnd}<br>
+            Généré le: ${new Date().toLocaleString('fr-FR')}
+          </div>
+        </div>
+        <div class="summary">
+          <strong>TOTAL ATTENDU : ${total.toLocaleString()} FCFA</strong> | ${data.length} remboursements prévus
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Échéance</th>
+              <th>Client</th>
+              <th>Dossier No</th>
+              <th>Zone</th>
+              <th>Montant</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        <div class="footer">Document confidentiel - Crédit-Garde</div>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `previsions_${forecastStart}_au_${forecastEnd}.html`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    if (currentUser && currentUserRole) {
+      addLog('Exportation prévisions', currentUser, currentUserRole, `Période: ${forecastStart} au ${forecastEnd}`);
+    }
   };
 
   const handlePrint = () => {
@@ -1208,6 +1311,11 @@ const App: React.FC = () => {
   const filteredSettledCredits = filterCredits(settledCredits);
   const filteredLogs = filterLogs(logs).filter(l => l.microfinance_code === microfinance_code_actif);
 
+  const activeRemainingForFiltered = filteredActiveCredits.reduce((acc, c) => {
+    const repaid = (c.repayments || []).reduce((ra, r) => ra + (Number(r.capital) || 0), 0);
+    return acc + ((Number(c.creditAccordeChiffre) || 0) - repaid);
+  }, 0);
+
   const dashboardCredits = credits.filter(c => 
     (currentUserRole !== 'Agents commerciaux' || c.zone === userZone) &&
     (dashFilterType === 'Tous' || c.creditType === dashFilterType) &&
@@ -1262,6 +1370,25 @@ const App: React.FC = () => {
 
   const dbTotalMonsieur = dashboardCredits.filter(c => c.clientCivilite === 'Monsieur').length;
   const dbTotalMadame = dashboardCredits.filter(c => c.clientCivilite === 'Madame').length;
+
+  const forecastInstallments = activeCredits.flatMap(c => {
+    const installments = c.installments || [];
+    const totalRepaidAll = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0) + (Number(r.interests) || 0), 0);
+    
+    return installments.filter(inst => {
+      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
+      const isNotYetPaid = totalRepaidAll < (cumulativeDue - 1);
+      return isNotYetPaid && inst.dueDate >= forecastStart && inst.dueDate <= forecastEnd;
+    }).map(inst => ({
+      client: c.clientName,
+      dueDate: inst.dueDate,
+      amount: inst.amount,
+      dossierNo: c.dossierNo,
+      zone: c.zone
+    }));
+  }).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+  const totalForecastAmount = forecastInstallments.reduce((acc, curr) => acc + curr.amount, 0);
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-100 print:bg-white">
@@ -1336,6 +1463,13 @@ const App: React.FC = () => {
               >
                 <span className="text-xl">📄</span>
                 <span className="text-sm">Crédit soldé</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('forecast')}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'forecast' ? 'bg-[#10b981] text-white shadow-lg shadow-emerald-500/30 font-black' : 'text-slate-100 hover:bg-slate-800 font-bold'}`}
+              >
+                <span className="text-xl">📅</span>
+                <span className="text-sm">Prévisions</span>
               </button>
             </div>
           </nav>
@@ -1426,8 +1560,10 @@ const App: React.FC = () => {
 
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center space-x-2 px-4 py-2 text-[10px] font-bold text-slate-500 uppercase">
-            <div className={`w-2 h-2 rounded-full ${!isInitialLoadDone ? 'bg-orange-500 animate-pulse' : isSyncError ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
-            <span>{!isInitialLoadDone ? 'Connexion...' : isSyncError ? 'Erreur Supabase' : 'Sync LIVE'}</span>
+            <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-blue-400 animate-pulse' : (!isInitialLoadDone ? 'bg-orange-500 animate-pulse' : isSyncError ? 'bg-red-500' : 'bg-emerald-500')}`}></div>
+            <span>
+              {isSyncing ? 'Sauvegarde...' : (!isInitialLoadDone ? 'Connexion...' : isSyncError ? 'Erreur Supabase' : 'Sync LIVE')}
+            </span>
           </div>
           <div className="px-4 py-2 text-xs text-slate-200 truncate font-bold">Connecté: {currentUser} ({currentUserRole})</div>
           <button 
@@ -1620,7 +1756,10 @@ const App: React.FC = () => {
               <div className="flex flex-col md:flex-row justify-between md:items-center mb-8 border-b pb-4 gap-4">
                 <div className="flex items-center space-x-4">
                   <h2 className="text-3xl font-black text-slate-900">Crédits Actifs</h2>
-                  <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider print:hidden">{activeCredits.length} Dossiers</span>
+                  <div className="flex gap-2">
+                    <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider print:hidden">{activeCredits.length} Dossiers</span>
+                    <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider print:hidden">{activeRemainingForFiltered.toLocaleString()} FCFA</span>
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-2 print:hidden">
                   <select value={activeFilterStatus} onChange={(e) => setActiveFilterStatus(e.target.value)} className="text-xs border rounded-lg p-2 bg-gray-50 outline-none focus:ring-1 focus:ring-emerald-500 font-bold">
@@ -1712,6 +1851,65 @@ const App: React.FC = () => {
                 userRole={currentUserRole} 
                 currentUser={currentUser} 
               />
+            </section>
+          )}
+
+          {activeTab === 'forecast' && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 print:border-none">
+              <div className="flex flex-col md:flex-row justify-between md:items-center mb-8 border-b pb-4 gap-4">
+                <h2 className="text-3xl font-black text-slate-900">Prévisions des Remboursements</h2>
+                <div className="flex gap-2 print:hidden">
+                  <button onClick={() => handleExportForecast(forecastInstallments, totalForecastAmount)} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase hover:bg-slate-700 transition-colors flex items-center gap-2"><span>📥</span> Export</button>
+                  <button onClick={handlePrint} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase hover:bg-emerald-500 transition-colors flex items-center gap-2"><span>🖨️</span> Imprimer</button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                <div className="flex flex-col space-y-2">
+                  <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Date Début</label>
+                  <input type="date" value={forecastStart} onChange={(e) => setForecastStart(e.target.value)} className="bg-white text-slate-900 border-2 border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div className="flex flex-col space-y-2">
+                  <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Date Fin</label>
+                  <input type="date" value={forecastEnd} onChange={(e) => setForecastEnd(e.target.value)} className="bg-white text-slate-900 border-2 border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+              </div>
+
+              <div className="mb-8 p-6 bg-emerald-600 text-white rounded-2xl shadow-lg flex justify-between items-center">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] mb-1">Total Attendu sur la période</h3>
+                  <p className="text-4xl font-black">{totalForecastAmount.toLocaleString()} FCFA</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-black uppercase tracking-widest bg-emerald-500/50 px-3 py-1 rounded-full">{forecastInstallments.length} Remboursements</span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Échéance</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Client</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Dossier / Zone</th>
+                      <th className="px-6 py-4 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Montant</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {forecastInstallments.length === 0 ? (
+                      <tr><td colSpan={4} className="px-6 py-10 text-center text-xs text-gray-400 italic font-bold">Aucun remboursement prévu pour cette période.</td></tr>
+                    ) : (
+                      forecastInstallments.map((fi, i) => (
+                        <tr key={i} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap text-xs font-black text-blue-600">{fi.dueDate}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-xs font-black text-slate-800 uppercase">{fi.client}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-[10px] font-bold text-gray-500 uppercase">{fi.dossierNo} (Zone: {fi.zone})</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-black text-emerald-600">{fi.amount.toLocaleString()} FCFA</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </section>
           )}
 
