@@ -30,7 +30,7 @@ const getDelayDuration = (dateStr: string) => {
 
 const RECOVERY_TIPS: Record<string, string[]> = {
   'Administrateur': [
-    "Analysez quotidiennement le PAR 1 pour détecter les signaux faibles de dégradation du portefeuille.",
+    "Analysez quotidiennement le PAR 1 pour détecter les signaux faibles de degradation du portefeuille.",
     "Vérifiez l'exhaustivité des saisies de rapports de recouvrement par les agents de terrain.",
     "Ajustez les plafonds de délégation selon les performances de recouvrement des zones.",
     "Auditez les dossiers en retard de plus de 90 jours pour décider des passages en contentieux.",
@@ -133,7 +133,7 @@ const App: React.FC = () => {
     } catch(e) { return ['ORDINAIRE FIDELIA', 'MOKPOKPO PRE-PAYER']; }
   });
   
-  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration' | 'forecast'>('tips');
+  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'arrears' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration' | 'forecast'>('tips');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<'Administrateur' | 'Directeur' | 'Opérateur' | 'Agents commerciaux' | 'Autres' | null>(null);
@@ -148,6 +148,10 @@ const App: React.FC = () => {
   const [activeFilterType, setActiveFilterType] = useState<string>('Tous');
   const [activeFilterZone, setActiveFilterZone] = useState<string>('Toutes');
   const [activeFilterStatus, setActiveFilterStatus] = useState<string>('Tous');
+
+  // Filtres Crédits en Retard
+  const [arrearsFilterType, setArrearsFilterType] = useState<string>('Tous');
+  const [arrearsFilterZone, setArrearsFilterZone] = useState<string>('Toutes');
 
   // Filtres Crédits Soldés
   const [settledFilterType, setSettledFilterType] = useState<string>('Tous');
@@ -821,6 +825,7 @@ const App: React.FC = () => {
               <div class="item"><span class="label">Téléphone:</span> <span class="value">${credit.tel || '-'}</span></div>
               <div class="item"><span class="label">Revenu Mensuel:</span> <span class="value">${(Number(credit.clientRevenuMensuel) || 0).toLocaleString()} FCFA</span></div>
               <div class="item"><span class="label">Adresse Domicile:</span> <span class="value">${credit.adresseDomicile || '-'}</span></div>
+              <div class="item"><span class="label">Adresse Service:</span> <span class="value">${credit.adresseService || '-'}</span></div>
               <div class="item"><span class="label">Compte Épargne:</span> <span class="value">${credit.noCompte || '-'}</span></div>
               <div class="item"><span class="label">Compte Tontine:</span> <span class="value">${credit.noCompteTontine || '-'}</span></div>
               <div class="item"><span class="label">Mise Tontine:</span> <span class="value">${credit.mise || '-'}</span></div>
@@ -836,6 +841,7 @@ const App: React.FC = () => {
               <div class="item"><span class="label">Date Déblocage:</span> <span class="value">${credit.dateDeblocage || '-'}</span></div>
               <div class="item"><span class="label">Échéance Finale:</span> <span class="value">${credit.creditType === 'ORDINAIRE FIDELIA' ? (credit.dateDernierRemboursement || '-') : (credit.aRembourserLe || '-')}</span></div>
               <div class="item"><span class="label">Intérêt Total:</span> <span class="value">${(Number(credit.intTotal) || 0).toLocaleString()} FCFA</span></div>
+              <div class="item"><span class="label">Frais de Dossier:</span> <span class="value">${(Number(credit.fraisEtudeDossier) || 0).toLocaleString()} FCFA</span></div>
               <div class="item"><span class="label">Utilisation:</span> <span class="value">${credit.utilisationCredit || '-'}</span></div>
               <div class="item"><span class="label">Mensualités Payées:</span> <span class="value">${paidCount} / ${totalInstallmentsCount}</span></div>
               <div class="item"><span class="label">Restant Cap:</span> <span class="value" style="color: #16a34a;">${capRest.toLocaleString()} FCFA</span></div>
@@ -1306,6 +1312,18 @@ const App: React.FC = () => {
 
     return true;
   });
+
+  const arrearsCreditsList = credits.filter(credit => 
+    getCreditStatus(credit) === 'en retard' &&
+    (currentUserRole !== 'Agents commerciaux' || credit.zone === userZone) &&
+    credit.microfinance_code === microfinance_code_actif &&
+    (credit.zone !== 'VIP' || (currentUserRole === 'Administrateur' || currentUserRole === 'Directeur'))
+  );
+
+  const filteredArrearsCredits = filterCredits(arrearsCreditsList).filter(c => 
+    (arrearsFilterType === 'Tous' || c.creditType === arrearsFilterType) &&
+    (arrearsFilterZone === 'Toutes' || c.zone === arrearsFilterZone)
+  );
   
   const filteredActiveCredits = filterCredits(activeCredits);
   const filteredSettledCredits = filterCredits(settledCredits);
@@ -1456,6 +1474,13 @@ const App: React.FC = () => {
               >
                 <span className="text-xl">🕒</span>
                 <span className="text-sm">Crédit actif</span>
+              </button>
+              <button 
+                onClick={() => { setActiveTab('arrears'); setSearchTerm(''); }}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'arrears' ? 'bg-[#10b981] text-white shadow-lg shadow-emerald-500/30 font-black' : 'text-slate-100 hover:bg-slate-800 font-bold'}`}
+              >
+                <span className="text-xl">⚠️</span>
+                <span className="text-sm">Crédits en retard</span>
               </button>
               <button 
                 onClick={() => { setActiveTab('settled'); setSearchTerm(''); }}
@@ -1807,6 +1832,95 @@ const App: React.FC = () => {
             </section>
           )}
 
+          {activeTab === 'arrears' && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 print:border-none">
+              <div className="flex flex-col md:flex-row justify-between md:items-center mb-8 border-b pb-4 gap-4">
+                <h2 className="text-3xl font-black text-red-600 uppercase italic">Crédits en Retard</h2>
+                <div className="flex flex-wrap gap-2 print:hidden">
+                  <select value={arrearsFilterType} onChange={(e) => setArrearsFilterType(e.target.value)} className="text-xs border rounded-lg p-2 bg-gray-50 outline-none focus:ring-1 focus:ring-emerald-500 font-bold">
+                    <option value="Tous">Tous types</option>
+                    {creditTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <select value={arrearsFilterZone} onChange={(e) => setArrearsFilterZone(e.target.value)} className="text-xs border rounded-lg p-2 bg-gray-50 outline-none focus:ring-1 focus:ring-emerald-500 font-bold">
+                    <option value="Toutes">Toutes zones</option>
+                    {ZONES_LIST.map(z => (<option key={z} value={z}>{z}</option>))}
+                  </select>
+                   <button onClick={() => handleExportTable(filteredArrearsCredits, 'credits_en_retard.html')} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase hover:bg-slate-700 transition-colors flex items-center gap-2"><span>📥</span> Export</button>
+                   <button onClick={handlePrint} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase hover:bg-emerald-500 transition-colors flex items-center gap-2"><span>🖨️</span> Imprimer</button>
+                </div>
+              </div>
+              
+              <div className="mb-6 flex flex-wrap gap-4 items-center justify-between print:hidden">
+                <div className="flex-1 min-w-[300px]">
+                  <input type="text" placeholder="🔍 Rechercher par nom, compte épargne ou tontine..." className="w-full border rounded-xl px-4 py-2.5 bg-slate-50 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Client / Tél</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Compte / Tontine</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Agent</th>
+                      <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase">Cap. Restant</th>
+                      <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase">Int. Restant</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Caution (Nom/Tél)</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Échéance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {filteredArrearsCredits.length === 0 ? (
+                      <tr><td colSpan={7} className="px-4 py-10 text-center text-xs text-gray-400 italic">Aucun crédit en retard trouvé.</td></tr>
+                    ) : (
+                      filteredArrearsCredits.map(c => {
+                        const repaidCap = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+                        const repaidInt = (c.repayments || []).reduce((acc, r) => acc + (Number(r.interests) || 0), 0);
+                        const capRest = (Number(c.creditAccordeChiffre) || 0) - repaidCap;
+                        const intRest = (Number(c.intTotal) || 0) - repaidInt;
+                        const echeance = c.creditType === 'ORDINAIRE FIDELIA' ? c.dateDernierRemboursement : c.aRembourserLe;
+                        return (
+                          <tr key={c.id} className="hover:bg-red-50/30 transition-colors">
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-xs font-black text-slate-900 uppercase">{c.clientName}</div>
+                              <div className="text-[10px] font-bold text-slate-500">{c.tel}</div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-[10px] font-black text-slate-800">C: {c.noCompte || '-'}</div>
+                              <div className="text-[10px] font-black text-blue-600">T: {c.noCompteTontine || '-'}</div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-[10px] font-black text-slate-700 uppercase">{c.agentCommercial || '-'}</td>
+                            <td className="px-4 py-4 whitespace-nowrap text-right text-xs font-black text-red-600">{capRest.toLocaleString()}</td>
+                            <td className="px-4 py-4 whitespace-nowrap text-right text-xs font-black text-blue-600">{intRest.toLocaleString()}</td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-[10px] font-black text-slate-800 uppercase">{c.cautionNom}</div>
+                              <div className="text-[10px] font-bold text-slate-500">{c.cautionTel}</div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-[10px] font-black text-red-700">{echeance || '-'}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  {filteredArrearsCredits.length > 0 && (
+                    <tfoot className="bg-red-50/50">
+                      <tr className="font-black text-xs">
+                        <td colSpan={3} className="px-4 py-4 text-right uppercase tracking-widest">Totaux de la liste :</td>
+                        <td className="px-4 py-4 text-right text-red-600">
+                          {filteredArrearsCredits.reduce((acc, c) => acc + ((Number(c.creditAccordeChiffre) || 0) - (c.repayments || []).reduce((ra, r) => ra + (Number(r.capital) || 0), 0)), 0).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-4 text-right text-blue-600">
+                          {filteredArrearsCredits.reduce((acc, c) => acc + ((Number(c.intTotal) || 0) - (c.repayments || []).reduce((ra, r) => ra + (Number(r.interests) || 0), 0)), 0).toLocaleString()}
+                        </td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </section>
+          )}
+
           {activeTab === 'settled' && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 print:border-none">
               <div className="flex flex-col md:flex-row justify-between md:items-center mb-8 border-b pb-4 gap-4">
@@ -1838,7 +1952,7 @@ const App: React.FC = () => {
               </div>
               <CreditList 
                 credits={filteredSettledCredits} 
-                onDeleteCredit={handleDeleteCredit} 
+                onDeleteCredit(credit.id)} 
                 onEditCredit={handleEditCredit} 
                 onAddRepayment={handleAddRepayment} 
                 onUpdateRepayment={handleUpdateRepayment} 
@@ -1946,7 +2060,7 @@ const App: React.FC = () => {
           {activeTab === 'invitation' && (isAdmin || isDirector) && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 space-y-12">
               <div>
-                <h2 className="text-3xl font-black mb-8 text-slate-900 border-b pb-4">Configuration de l'Institution</h2>
+                <h2 className="text-3xl font-black text-slate-900 mb-8 border-b pb-4">Configuration de l'Institution</h2>
                 <form className="max-w-3xl space-y-6" onSubmit={(e) => e.preventDefault()}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="flex flex-col space-y-2">
@@ -1966,7 +2080,7 @@ const App: React.FC = () => {
               </div>
 
               <div>
-                <h2 className="text-3xl font-black mb-8 text-slate-900 border-b pb-4">Gestion des Produits (Types de Crédit)</h2>
+                <h2 className="text-3xl font-black text-slate-900 mb-8 border-b pb-4">Gestion des Produits (Types de Crédit)</h2>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                   <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 shadow-sm">
                     <h3 className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-6">Ajouter un nouveau type</h3>
@@ -2001,7 +2115,7 @@ const App: React.FC = () => {
               </div>
 
               <div>
-                <h2 className="text-3xl font-black mb-8 text-slate-900 border-b pb-4">Gestion des Institutions</h2>
+                <h2 className="text-3xl font-black text-slate-900 mb-8 border-b pb-4">Gestion des Institutions</h2>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                   <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 shadow-sm">
                     <h3 className="text-sm font-black text-emerald-600 uppercase tracking-widest mb-6">Ajouter une Microfinance</h3>
