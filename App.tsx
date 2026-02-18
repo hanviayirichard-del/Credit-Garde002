@@ -1952,7 +1952,7 @@ const App: React.FC = () => {
               </div>
               <CreditList 
                 credits={filteredSettledCredits} 
-                onDeleteCredit(credit.id)} 
+                onDeleteCredit={handleDeleteCredit} 
                 onEditCredit={handleEditCredit} 
                 onAddRepayment={handleAddRepayment} 
                 onUpdateRepayment={handleUpdateRepayment} 
