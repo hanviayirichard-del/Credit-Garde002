@@ -133,7 +133,7 @@ const App: React.FC = () => {
     } catch(e) { return ['ORDINAIRE FIDELIA', 'MOKPOKPO PRE-PAYER']; }
   });
   
-  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'arrears' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration' | 'forecast'>('tips');
+  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'arrears' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration' | 'forecast' | 'recovery_tracking'>('tips');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<'Administrateur' | 'Directeur' | 'Opérateur' | 'Agents commerciaux' | 'Autres' | null>(null);
@@ -164,6 +164,8 @@ const App: React.FC = () => {
     d.setDate(d.getDate() + 30);
     return d.toISOString().split('T')[0];
   });
+  const [forecastFilterZone, setForecastFilterZone] = useState<string>('Toutes');
+  const [recoveryFilterZone, setRecoveryFilterZone] = useState<string>('Toutes');
 
   // Formulaire de connexion
   const [loginUsername, setLoginUsername] = useState('');
@@ -1044,6 +1046,10 @@ const App: React.FC = () => {
         <td>${fi.client}</td>
         <td>${fi.dossierNo}</td>
         <td>${fi.zone}</td>
+        <td>${fi.noCompte || '-'} / ${fi.noCompteTontine || '-'}</td>
+        <td style="text-align: right;">${fi.remainingCapital.toLocaleString()}</td>
+        <td style="text-align: right;">${fi.remainingInterest.toLocaleString()}</td>
+        <td style="text-align: right;">${fi.penalty.toLocaleString()}</td>
         <td style="text-align: right; font-weight: bold; color: #10b981;">${fi.amount.toLocaleString()} FCFA</td>
       </tr>
     `).join("");
@@ -1088,6 +1094,10 @@ const App: React.FC = () => {
               <th>Client</th>
               <th>Dossier No</th>
               <th>Zone</th>
+              <th>Épargne / Tontine</th>
+              <th>Cap. Restant</th>
+              <th>Int. Restant</th>
+              <th>Pénalité</th>
               <th>Montant</th>
             </tr>
           </thead>
@@ -1389,24 +1399,61 @@ const App: React.FC = () => {
   const dbTotalMonsieur = dashboardCredits.filter(c => c.clientCivilite === 'Monsieur').length;
   const dbTotalMadame = dashboardCredits.filter(c => c.clientCivilite === 'Madame').length;
 
-  const forecastInstallments = activeCredits.flatMap(c => {
-    const installments = c.installments || [];
-    const totalRepaidAll = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0) + (Number(r.interests) || 0), 0);
-    
-    return installments.filter(inst => {
-      const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
-      const isNotYetPaid = totalRepaidAll < (cumulativeDue - 1);
-      return isNotYetPaid && inst.dueDate >= forecastStart && inst.dueDate <= forecastEnd;
-    }).map(inst => ({
-      client: c.clientName,
-      dueDate: inst.dueDate,
-      amount: inst.amount,
-      dossierNo: c.dossierNo,
-      zone: c.zone
-    }));
-  }).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const forecastInstallments = activeCredits
+    .filter(c => forecastFilterZone === 'Toutes' || c.zone === forecastFilterZone)
+    .filter(c => {
+      if (!searchTerm) return true;
+      const lowerSearch = searchTerm.toLowerCase();
+      return (c.clientName || '').toLowerCase().includes(lowerSearch) || 
+             (c.surNom || '').toLowerCase().includes(lowerSearch) ||
+             (c.noCompte || '').toLowerCase().includes(lowerSearch) ||
+             (c.noCompteTontine || '').toLowerCase().includes(lowerSearch);
+    })
+    .flatMap(c => {
+      const installments = c.installments || [];
+      const totalRepaidCapital = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+      const totalRepaidInterests = (c.repayments || []).reduce((acc, r) => acc + (Number(r.interests) || 0), 0);
+      const totalRepaidAll = totalRepaidCapital + totalRepaidInterests;
+      
+      return installments.filter(inst => {
+        const cumulativeDue = installments.filter(i => i.number <= inst.number).reduce((acc, i) => acc + (Number(i.amount) || 0), 0);
+        const isNotYetPaid = totalRepaidAll < (cumulativeDue - 1);
+        return isNotYetPaid && inst.dueDate >= forecastStart && inst.dueDate <= forecastEnd;
+      }).map(inst => ({
+        client: c.clientName,
+        dueDate: inst.dueDate,
+        amount: inst.amount,
+        dossierNo: c.dossierNo,
+        zone: c.zone,
+        noCompte: c.noCompte,
+        noCompteTontine: c.noCompteTontine,
+        remainingCapital: (Number(c.creditAccordeChiffre) || 0) - totalRepaidCapital,
+        remainingInterest: (Number(c.intTotal) || 0) - totalRepaidInterests,
+        penalty: 0 // Le système actuel ne calcule pas automatiquement les pénalités dues
+      }));
+    }).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
   const totalForecastAmount = forecastInstallments.reduce((acc, curr) => acc + curr.amount, 0);
+  const allRecoveryActions = credits
+    .filter(c => recoveryFilterZone === 'Toutes' || c.zone === recoveryFilterZone)
+    .filter(c => {
+      if (!searchTerm) return true;
+      const lowerSearch = searchTerm.toLowerCase();
+      return (c.clientName || '').toLowerCase().includes(lowerSearch) || 
+             (c.surNom || '').toLowerCase().includes(lowerSearch) ||
+             (c.noCompte || '').toLowerCase().includes(lowerSearch) ||
+             (c.noCompteTontine || '').toLowerCase().includes(lowerSearch);
+    })
+    .flatMap(c => 
+      (c.recoveryActions || []).map(a => ({
+        ...a,
+        clientName: c.clientName,
+        dossierNo: c.dossierNo,
+        zone: c.zone,
+        noCompte: c.noCompte,
+        noCompteTontine: c.noCompteTontine
+      }))
+    ).sort((a, b) => b.date.localeCompare(a.date));
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-100 print:bg-white">
@@ -1495,6 +1542,13 @@ const App: React.FC = () => {
               >
                 <span className="text-xl">📅</span>
                 <span className="text-sm">Prévisions</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('recovery_tracking')}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'recovery_tracking' ? 'bg-[#10b981] text-white shadow-lg shadow-emerald-500/30 font-black' : 'text-slate-100 hover:bg-slate-800 font-bold'}`}
+              >
+                <span className="text-xl">🛡️</span>
+                <span className="text-sm">Suivi de recouvrement</span>
               </button>
             </div>
           </nav>
@@ -1977,7 +2031,7 @@ const App: React.FC = () => {
                   <button onClick={handlePrint} className="bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-bold uppercase hover:bg-emerald-500 transition-colors flex items-center gap-2"><span>🖨️</span> Imprimer</button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 bg-slate-50 p-6 rounded-2xl border border-slate-100">
                 <div className="flex flex-col space-y-2">
                   <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Date Début</label>
                   <input type="date" value={forecastStart} onChange={(e) => setForecastStart(e.target.value)} className="bg-white text-slate-900 border-2 border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -1986,6 +2040,23 @@ const App: React.FC = () => {
                   <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Date Fin</label>
                   <input type="date" value={forecastEnd} onChange={(e) => setForecastEnd(e.target.value)} className="bg-white text-slate-900 border-2 border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
+                <div className="flex flex-col space-y-2">
+                  <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Zone</label>
+                  <select value={forecastFilterZone} onChange={(e) => setForecastFilterZone(e.target.value)} className="bg-white text-slate-900 border-2 border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="Toutes">Toutes les zones</option>
+                    {ZONES_LIST.map(z => <option key={z} value={z}>{z}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mb-8 print:hidden">
+                <input 
+                  type="text" 
+                  placeholder="🔍 Rechercher par nom, compte épargne ou tontine..." 
+                  className="w-full border-2 border-gray-100 rounded-2xl px-6 py-4 bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all" 
+                  value={searchTerm} 
+                  onChange={(e) => setSearchTerm(e.target.value)} 
+                />
               </div>
 
               <div className="mb-8 p-6 bg-emerald-600 text-white rounded-2xl shadow-lg flex justify-between items-center">
@@ -2005,6 +2076,10 @@ const App: React.FC = () => {
                       <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Échéance</th>
                       <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Client</th>
                       <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Dossier / Zone</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Épargne / Tontine</th>
+                      <th className="px-6 py-4 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Cap. Restant</th>
+                      <th className="px-6 py-4 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Int. Restant</th>
+                      <th className="px-6 py-4 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Pénalité</th>
                       <th className="px-6 py-4 text-right text-[10px] font-black text-gray-500 uppercase tracking-widest">Montant</th>
                     </tr>
                   </thead>
@@ -2017,7 +2092,69 @@ const App: React.FC = () => {
                           <td className="px-6 py-4 whitespace-nowrap text-xs font-black text-blue-600">{fi.dueDate}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-xs font-black text-slate-800 uppercase">{fi.client}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-[10px] font-bold text-gray-500 uppercase">{fi.dossierNo} (Zone: {fi.zone})</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-[10px] font-bold text-gray-500 uppercase">{fi.noCompte || '-'} / {fi.noCompteTontine || '-'}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-black text-emerald-800">{fi.remainingCapital.toLocaleString()}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-black text-blue-800">{fi.remainingInterest.toLocaleString()}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-black text-red-600">{fi.penalty.toLocaleString()}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-black text-emerald-600">{fi.amount.toLocaleString()} FCFA</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {activeTab === 'recovery_tracking' && (
+            <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <div className="flex flex-col md:flex-row justify-between md:items-center mb-8 border-b pb-4 gap-4">
+                <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">Suivi de Recouvrement</h2>
+                <div className="flex flex-col space-y-1 min-w-[200px] print:hidden">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Filtrer par Zone</label>
+                  <select 
+                    value={recoveryFilterZone} 
+                    onChange={(e) => setRecoveryFilterZone(e.target.value)}
+                    className="bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                  >
+                    <option value="Toutes">Toutes les zones</option>
+                    {ZONES_LIST.map(z => <option key={z} value={z}>{z}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mb-8 print:hidden">
+                <input 
+                  type="text" 
+                  placeholder="🔍 Rechercher par nom, compte épargne ou tontine..." 
+                  className="w-full border-2 border-gray-100 rounded-2xl px-6 py-4 bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all" 
+                  value={searchTerm} 
+                  onChange={(e) => setSearchTerm(e.target.value)} 
+                />
+              </div>
+
+              <div className="overflow-x-auto bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Date</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Client</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Dossier / Zone</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Épargne / Tontine</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-500 uppercase tracking-widest">Action / Commentaire</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {allRecoveryActions.length === 0 ? (
+                      <tr><td colSpan={5} className="px-6 py-10 text-center text-xs text-gray-400 italic font-bold">Aucune action de recouvrement enregistrée.</td></tr>
+                    ) : (
+                      allRecoveryActions.map((action, i) => (
+                        <tr key={action.id || i} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap text-xs font-black text-blue-600">{action.date}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-xs font-black text-slate-800 uppercase">{action.clientName}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-[10px] font-bold text-gray-500 uppercase">{action.dossierNo} (Zone: {action.zone})</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-[10px] font-bold text-gray-500 uppercase">{action.noCompte || '-'} / {action.noCompteTontine || '-'}</td>
+                          <td className="px-6 py-4 text-xs text-gray-600 font-medium">{action.comment}</td>
                         </tr>
                       ))
                     )}
