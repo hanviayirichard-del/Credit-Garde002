@@ -278,16 +278,47 @@ const App: React.FC = () => {
     loadFromSupabase();
   }, [microfinance_code_actif]);
 
+  const mergeById = <T extends { id: string }>(local: T[], server: T[]): T[] => {
+    const map = new Map<string, T>();
+    (server || []).forEach(item => map.set(item.id, item));
+    (local || []).forEach(item => map.set(item.id, item));
+    return Array.from(map.values());
+  };
+
   const syncWithSupabase = async (overrideData?: any) => {
     if (!microfinance_code_actif || (!isInitialLoadDone && !overrideData) || (isSyncError && !overrideData)) return;
     
     setIsSyncing(true);
     try {
+      // SÉCURITÉ ANTI-ÉCRASEMENT : Récupérer les données du serveur avant de sauvegarder
+      const { data: serverData, error: fetchError } = await supabase
+        .from('microfinances')
+        .select('*')
+        .eq('code', microfinance_code_actif)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      let finalCredits = credits;
+      let finalUsers = users;
+      let finalLogs = logs;
+
+      if (serverData && !overrideData) {
+        finalCredits = mergeById(credits, serverData.credits || []);
+        finalUsers = mergeById(users, serverData.users || []);
+        finalLogs = mergeById(logs, serverData.logs || []);
+        
+        // Si la fusion a ajouté des éléments, on met à jour l'état local
+        if (finalCredits.length > credits.length) setCredits(finalCredits);
+        if (finalUsers.length > users.length) setUsers(finalUsers);
+        if (finalLogs.length > logs.length) setLogs(finalLogs);
+      }
+
       const payload = overrideData || {
         code: microfinance_code_actif,
-        credits,
-        users,
-        logs,
+        credits: finalCredits,
+        users: finalUsers,
+        logs: finalLogs,
         microfinance,
         auto_deactivation: autoDeactivation,
         credit_types: creditTypes
