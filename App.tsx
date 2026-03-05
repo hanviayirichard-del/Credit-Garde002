@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Credit, Repayment, User, RecoveryAction, Log, Installment } from './types';
 import CreditForm from './components/CreditForm';
 import CreditList from './components/CreditList';
+import MapComponent from './components/MapComponent';
 import { supabase } from './supabase';
 
 const ZONES_LIST = ['01','01A','02','02A','03','03A','04','04A','05','05A','06','06A','07','07A','08','08A','09','09A','Personnel','VIP','Autres'];
@@ -133,7 +134,7 @@ const App: React.FC = () => {
     } catch(e) { return ['ORDINAIRE FIDELIA', 'MOKPOKPO PRE-PAYER']; }
   });
   
-  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'arrears' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration' | 'forecast' | 'recovery_tracking'>('tips');
+  const [activeTab, setActiveTab] = useState<'tips' | 'dashboard' | 'new' | 'active' | 'arrears' | 'settled' | 'users' | 'logs' | 'invitation' | 'training' | 'developer' | 'activation' | 'migration' | 'forecast' | 'recovery_tracking' | 'map'>('tips');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<'Administrateur' | 'Directeur' | 'Opérateur' | 'Agents commerciaux' | 'Autres' | null>(null);
@@ -1581,6 +1582,13 @@ const App: React.FC = () => {
                 <span className="text-xl">🛡️</span>
                 <span className="text-sm">Suivi de recouvrement</span>
               </button>
+              <button 
+                onClick={() => setActiveTab('map')}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'map' ? 'bg-[#10b981] text-white shadow-lg shadow-emerald-500/30 font-black' : 'text-slate-100 hover:bg-slate-800 font-bold'}`}
+              >
+                <span className="text-xl">🗺️</span>
+                <span className="text-sm">Carte géographique</span>
+              </button>
             </div>
           </nav>
 
@@ -1697,8 +1705,8 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto print:p-0">
-        <div className="max-w-5xl mx-auto">
+      <main className={`flex-1 overflow-y-auto print:p-0 ${activeTab === 'map' ? 'p-0' : 'p-4 md:p-8'}`}>
+        <div className={activeTab === 'map' ? 'w-full h-full' : 'max-w-5xl mx-auto'}>
           {activeTab === 'tips' && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
               <h2 className="text-3xl font-black text-slate-900 mb-8 border-b pb-4 uppercase tracking-tight">Astuces de recouvrement</h2>
@@ -2193,6 +2201,28 @@ const App: React.FC = () => {
                 </table>
               </div>
             </section>
+          )}
+
+          {activeTab === 'map' && (
+            <div className="w-full h-screen relative">
+              <button 
+                onClick={() => setActiveTab('tips')}
+                className="absolute top-6 right-6 z-[5000] bg-white/95 backdrop-blur-md border-2 border-emerald-500/20 text-slate-900 px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-2 font-black text-xs uppercase tracking-widest hover:bg-white transition-all active:scale-95"
+              >
+                <span>☰</span>
+                <span>Menu</span>
+              </button>
+              <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-[5000] w-full max-w-md px-6">
+                <input 
+                  type="text" 
+                  placeholder="🔍 Rechercher client, compte..." 
+                  className="w-full bg-white/95 backdrop-blur-md border-2 border-emerald-500/20 rounded-2xl px-6 py-4 text-sm font-black shadow-2xl outline-none focus:ring-4 focus:ring-emerald-500/50 transition-all text-slate-900"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <MapComponent credits={filterCredits(credits.filter(c => c.microfinance_code === microfinance_code_actif))} />
+            </div>
           )}
 
           {activeTab === 'training' && (

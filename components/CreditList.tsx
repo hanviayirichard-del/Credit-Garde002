@@ -263,6 +263,19 @@ const CreditList: React.FC<CreditListProps> = ({
                         <p>Profession: {credit.profession || '-'}</p>
                       </div>
                       <p>Adresse: {credit.adresseDomicile || '-'}</p>
+                      {(credit.latitude && credit.longitude) && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-blue-600 font-black">📍 Géo: {credit.latitude.toFixed(6)}, {credit.longitude.toFixed(6)}</span>
+                          <a 
+                            href={`https://www.google.com/maps?q=${credit.latitude},${credit.longitude}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[8px] font-black uppercase hover:bg-blue-200 transition-colors"
+                          >
+                            Voir sur la carte
+                          </a>
+                        </div>
+                      )}
                       {credit.personneReferenceNom && (
                         <p className="text-blue-500">Réf: {credit.personneReferenceNom} | Tél: {credit.personneReferenceTel}</p>
                       )}

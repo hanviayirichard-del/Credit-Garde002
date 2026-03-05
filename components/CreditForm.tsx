@@ -172,7 +172,9 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
     cautionPretInteretsLettre: '',
     cautionPretInteretsChiffre: '',
     cautionFaitLieuDate: '',
-    creditType: 'ORDINAIRE FIDELIA'
+    creditType: 'ORDINAIRE FIDELIA',
+    latitude: '',
+    longitude: ''
   });
 
   useEffect(() => {
@@ -238,7 +240,9 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
         cautionPretInteretsLettre: creditToEdit.cautionPretInteretsLettre || '',
         cautionPretInteretsChiffre: creditToEdit.cautionPretInteretsChiffre?.toString() || '',
         cautionFaitLieuDate: creditToEdit.cautionFaitLieuDate || '',
-        creditType: creditToEdit.creditType || 'ORDINAIRE FIDELIA'
+        creditType: creditToEdit.creditType || 'ORDINAIRE FIDELIA',
+        latitude: creditToEdit.latitude?.toString() || '',
+        longitude: creditToEdit.longitude?.toString() || ''
       });
     }
   }, [creditToEdit]);
@@ -364,6 +368,8 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
       cautionNbrePersonnesCharge: Number(formData.cautionNbrePersonnesCharge),
       cautionRevenuMensuel: Number(formData.cautionRevenuMensuel),
       cautionPretInteretsChiffre: Number(formData.cautionPretInteretsChiffre),
+      latitude: formData.latitude ? Number(formData.latitude) : undefined,
+      longitude: formData.longitude ? Number(formData.longitude) : undefined,
       amount: Number(formData.creditAccordeChiffre),
       interestAmount: Number(formData.intTotal) || 0,
       releaseDate: formData.dateDeblocage,
@@ -392,6 +398,26 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
       setNewTypeName('');
       setIsAddingType(false);
     }
+  };
+
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      setErrorMessage("La géolocalisation n'est pas supportée par votre navigateur.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setFormData(prev => ({
+          ...prev,
+          latitude: position.coords.latitude.toString(),
+          longitude: position.coords.longitude.toString()
+        }));
+      },
+      (error) => {
+        setErrorMessage("Erreur lors de la récupération de la position : " + error.message);
+      }
+    );
   };
 
   const renderField = (label: string, name: string, type: string = "text") => (
@@ -638,6 +664,29 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
             </div>
           )}
         </div>
+      </div>
+
+      <div className="bg-blue-50 p-6 rounded-3xl border-2 border-blue-100 shadow-sm">
+        <h3 className="text-xl font-black text-blue-800 mb-6 border-b-4 border-blue-500/20 pb-4 flex items-center">
+          <span className="bg-blue-500 text-white w-8 h-8 rounded-lg flex items-center justify-center mr-3 text-xs">📍</span>
+          GÉO-LOCALISATION
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+          {renderField("Latitude", "latitude")}
+          {renderField("Longitude", "longitude")}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={handleGetLocation}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-black py-4 px-6 rounded-2xl transition-all shadow-lg shadow-blue-500/20 uppercase tracking-widest text-[10px] active:scale-95 flex items-center justify-center gap-2"
+            >
+              <span>🛰️</span> Capturer la position actuelle
+            </button>
+          )}
+        </div>
+        <p className="mt-4 text-[10px] text-blue-500 font-bold italic">
+          Note: Utilisez ce bouton pour enregistrer les coordonnées GPS précises du client lors de l'instruction du dossier.
+        </p>
       </div>
 
       <div>

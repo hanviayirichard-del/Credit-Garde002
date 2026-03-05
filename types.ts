@@ -116,6 +116,9 @@ export interface Credit {
   installments?: Installment[];
   // Actions de recouvrement
   recoveryActions?: RecoveryAction[];
+  // Géo-localisation
+  latitude?: number;
+  longitude?: number;
   // Aliases pour compatibilité list
   amount?: number;
   interestAmount?: number;
