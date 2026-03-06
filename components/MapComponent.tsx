@@ -15,29 +15,58 @@ const MapComponent: React.FC<MapComponentProps> = ({ credits }) => {
 
   // Expose trace function to window for popup access
   useEffect(() => {
-    (window as any).tracePath = (lat: number, lng: number) => {
+    (window as any).tracePath = async (lat: number, lng: number) => {
       if (!mapInstance.current || !userPos) {
         alert("Position utilisateur non disponible");
         return;
       }
 
-      // Remove existing line
-      if (routingLine.current) {
-        mapInstance.current.removeLayer(routingLine.current);
+      try {
+        // Fetch route from OSRM (Open Source Routing Machine)
+        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${userPos[1]},${userPos[0]};${lng},${lat}?overview=full&geometries=geojson`);
+        const data = await response.json();
+
+        if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+          throw new Error("Itinéraire non trouvé");
+        }
+
+        const coordinates = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
+
+        // Remove existing line
+        if (routingLine.current) {
+          mapInstance.current.removeLayer(routingLine.current);
+        }
+
+        // Create new polyline following roads
+        routingLine.current = L.polyline(coordinates, {
+          color: '#2563eb',
+          weight: 6,
+          opacity: 0.7,
+          dashArray: '10, 10',
+          lineJoin: 'round'
+        }).addTo(mapInstance.current);
+
+        // Fit bounds to show both
+        mapInstance.current.fitBounds(routingLine.current.getBounds(), { padding: [50, 50] });
+        setIsRouting(true);
+      } catch (error) {
+        console.error("Routing error:", error);
+        alert("Erreur lors de la récupération de l'itinéraire routier. Tracé direct utilisé en secours.");
+        
+        // Fallback to straight line if OSRM fails
+        if (routingLine.current) {
+          mapInstance.current.removeLayer(routingLine.current);
+        }
+        routingLine.current = L.polyline([userPos, [lat, lng]], {
+          color: '#2563eb',
+          weight: 6,
+          opacity: 0.7,
+          dashArray: '10, 10',
+          lineJoin: 'round'
+        }).addTo(mapInstance.current);
+        mapInstance.current.fitBounds(routingLine.current.getBounds(), { padding: [50, 50] });
+        setIsRouting(true);
       }
-
-      // Create new polyline (simple straight line for "trace")
-      routingLine.current = L.polyline([userPos, [lat, lng]], {
-        color: '#2563eb',
-        weight: 6,
-        opacity: 0.7,
-        dashArray: '10, 10',
-        lineJoin: 'round'
-      }).addTo(mapInstance.current);
-
-      // Fit bounds to show both
-      mapInstance.current.fitBounds(routingLine.current.getBounds(), { padding: [50, 50] });
-      setIsRouting(true);
     };
 
     return () => {
