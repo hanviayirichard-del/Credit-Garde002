@@ -5,6 +5,8 @@ import CreditList from './components/CreditList';
 import MapComponent from './components/MapComponent';
 import { supabase } from './supabase';
 
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+
 const ZONES_LIST = ['01','01A','02','02A','03','03A','04','04A','05','05A','06','06A','07','07A','08','08A','09','09A','Personnel','VIP','Autres'];
 
 const getDelayDuration = (dateStr: string) => {
@@ -153,6 +155,8 @@ const App: React.FC = () => {
   // Filtres Crédits en Retard
   const [arrearsFilterType, setArrearsFilterType] = useState<string>('Tous');
   const [arrearsFilterZone, setArrearsFilterZone] = useState<string>('Toutes');
+  const [arrearsSubTab, setArrearsSubTab] = useState<'list' | 'chart'>('list');
+  const [arrearsChartPeriod, setArrearsChartPeriod] = useState<'day' | 'week' | 'month' | 'quarter' | 'semester' | 'year'>('month');
 
   // Filtres Crédits Soldés
   const [settledFilterType, setSettledFilterType] = useState<string>('Tous');
@@ -1928,7 +1932,23 @@ const App: React.FC = () => {
           {activeTab === 'arrears' && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 print:border-none">
               <div className="flex flex-col md:flex-row justify-between md:items-center mb-8 border-b pb-4 gap-4">
-                <h2 className="text-3xl font-black text-red-600 uppercase italic">Crédits en Retard</h2>
+                <div className="flex items-center gap-4">
+                  <h2 className="text-3xl font-black text-red-600 uppercase italic">Crédits en Retard</h2>
+                  <div className="flex bg-gray-100 p-1 rounded-xl print:hidden">
+                    <button 
+                      onClick={() => setArrearsSubTab('list')}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${arrearsSubTab === 'list' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Liste
+                    </button>
+                    <button 
+                      onClick={() => setArrearsSubTab('chart')}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${arrearsSubTab === 'chart' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Graphique
+                    </button>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-2 print:hidden">
                   <select value={arrearsFilterType} onChange={(e) => setArrearsFilterType(e.target.value)} className="text-xs border rounded-lg p-2 bg-gray-50 outline-none focus:ring-1 focus:ring-emerald-500 font-bold">
                     <option value="Tous">Tous types</option>
@@ -1943,74 +1963,227 @@ const App: React.FC = () => {
                 </div>
               </div>
               
-              <div className="mb-6 flex flex-wrap gap-4 items-center justify-between print:hidden">
-                <div className="flex-1 min-w-[300px]">
-                  <input type="text" placeholder="🔍 Rechercher par nom, compte épargne ou tontine..." className="w-full border rounded-xl px-4 py-2.5 bg-slate-50 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                </div>
-              </div>
+              {arrearsSubTab === 'list' ? (
+                <>
+                  <div className="mb-6 flex flex-wrap gap-4 items-center justify-between print:hidden">
+                    <div className="flex-1 min-w-[300px]">
+                      <input type="text" placeholder="🔍 Rechercher par nom, compte épargne ou tontine..." className="w-full border rounded-xl px-4 py-2.5 bg-slate-50 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                    </div>
+                  </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Client / Tél</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Compte / Tontine</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Agent</th>
-                      <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase">Cap. Restant</th>
-                      <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase">Int. Restant</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Caution (Nom/Tél)</th>
-                      <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Échéance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredArrearsCredits.length === 0 ? (
-                      <tr><td colSpan={7} className="px-4 py-10 text-center text-xs text-gray-400 italic">Aucun crédit en retard trouvé.</td></tr>
-                    ) : (
-                      filteredArrearsCredits.map(c => {
-                        const repaidCap = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
-                        const repaidInt = (c.repayments || []).reduce((acc, r) => acc + (Number(r.interests) || 0), 0);
-                        const capRest = (Number(c.creditAccordeChiffre) || 0) - repaidCap;
-                        const intRest = (Number(c.intTotal) || 0) - repaidInt;
-                        const echeance = c.creditType === 'ORDINAIRE FIDELIA' ? c.dateDernierRemboursement : c.aRembourserLe;
-                        return (
-                          <tr key={c.id} className="hover:bg-red-50/30 transition-colors">
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="text-xs font-black text-slate-900 uppercase">{c.clientName}</div>
-                              <div className="text-[10px] font-bold text-slate-500">{c.tel}</div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Client / Tél</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Compte / Tontine</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Agent</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase">Cap. Restant</th>
+                          <th className="px-4 py-3 text-right text-[10px] font-black text-gray-500 uppercase">Int. Restant</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Caution (Nom/Tél)</th>
+                          <th className="px-4 py-3 text-left text-[10px] font-black text-gray-500 uppercase">Échéance</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredArrearsCredits.length === 0 ? (
+                          <tr><td colSpan={7} className="px-4 py-10 text-center text-xs text-gray-400 italic">Aucun crédit en retard trouvé.</td></tr>
+                        ) : (
+                          filteredArrearsCredits.map(c => {
+                            const repaidCap = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+                            const repaidInt = (c.repayments || []).reduce((acc, r) => acc + (Number(r.interests) || 0), 0);
+                            const capRest = (Number(c.creditAccordeChiffre) || 0) - repaidCap;
+                            const intRest = (Number(c.intTotal) || 0) - repaidInt;
+                            const echeance = c.creditType === 'ORDINAIRE FIDELIA' ? c.dateDernierRemboursement : c.aRembourserLe;
+                            return (
+                              <tr key={c.id} className="hover:bg-red-50/30 transition-colors">
+                                <td className="px-4 py-4 whitespace-nowrap">
+                                  <div className="text-xs font-black text-slate-900 uppercase">{c.clientName}</div>
+                                  <div className="text-[10px] font-bold text-slate-500">{c.tel}</div>
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap">
+                                  <div className="text-[10px] font-black text-slate-800">C: {c.noCompte || '-'}</div>
+                                  <div className="text-[10px] font-black text-blue-600">T: {c.noCompteTontine || '-'}</div>
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-[10px] font-black text-slate-700 uppercase">{c.agentCommercial || '-'}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-right text-xs font-black text-red-600">{capRest.toLocaleString()}</td>
+                                <td className="px-4 py-4 whitespace-nowrap text-right text-xs font-black text-blue-600">{intRest.toLocaleString()}</td>
+                                <td className="px-4 py-4 whitespace-nowrap">
+                                  <div className="text-[10px] font-black text-slate-800 uppercase">{c.cautionNom}</div>
+                                  <div className="text-[10px] font-bold text-slate-500">{c.cautionTel}</div>
+                                </td>
+                                <td className="px-4 py-4 whitespace-nowrap text-[10px] font-black text-red-700">{echeance || '-'}</td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                      {filteredArrearsCredits.length > 0 && (
+                        <tfoot className="bg-red-50/50">
+                          <tr className="font-black text-xs">
+                            <td colSpan={3} className="px-4 py-4 text-right uppercase tracking-widest">Totaux de la liste :</td>
+                            <td className="px-4 py-4 text-right text-red-600">
+                              {filteredArrearsCredits.reduce((acc, c) => acc + ((Number(c.creditAccordeChiffre) || 0) - (c.repayments || []).reduce((ra, r) => ra + (Number(r.capital) || 0), 0)), 0).toLocaleString()}
                             </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="text-[10px] font-black text-slate-800">C: {c.noCompte || '-'}</div>
-                              <div className="text-[10px] font-black text-blue-600">T: {c.noCompteTontine || '-'}</div>
+                            <td className="px-4 py-4 text-right text-blue-600">
+                              {filteredArrearsCredits.reduce((acc, c) => acc + ((Number(c.intTotal) || 0) - (c.repayments || []).reduce((ra, r) => ra + (Number(r.interests) || 0), 0)), 0).toLocaleString()}
                             </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-[10px] font-black text-slate-700 uppercase">{c.agentCommercial || '-'}</td>
-                            <td className="px-4 py-4 whitespace-nowrap text-right text-xs font-black text-red-600">{capRest.toLocaleString()}</td>
-                            <td className="px-4 py-4 whitespace-nowrap text-right text-xs font-black text-blue-600">{intRest.toLocaleString()}</td>
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="text-[10px] font-black text-slate-800 uppercase">{c.cautionNom}</div>
-                              <div className="text-[10px] font-bold text-slate-500">{c.cautionTel}</div>
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-[10px] font-black text-red-700">{echeance || '-'}</td>
+                            <td colSpan={2}></td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                  {filteredArrearsCredits.length > 0 && (
-                    <tfoot className="bg-red-50/50">
-                      <tr className="font-black text-xs">
-                        <td colSpan={3} className="px-4 py-4 text-right uppercase tracking-widest">Totaux de la liste :</td>
-                        <td className="px-4 py-4 text-right text-red-600">
-                          {filteredArrearsCredits.reduce((acc, c) => acc + ((Number(c.creditAccordeChiffre) || 0) - (c.repayments || []).reduce((ra, r) => ra + (Number(r.capital) || 0), 0)), 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-4 text-right text-blue-600">
-                          {filteredArrearsCredits.reduce((acc, c) => acc + ((Number(c.intTotal) || 0) - (c.repayments || []).reduce((ra, r) => ra + (Number(r.interests) || 0), 0)), 0).toLocaleString()}
-                        </td>
-                        <td colSpan={2}></td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-8">
+                  <div className="flex flex-wrap gap-4 items-center justify-between">
+                    <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl">
+                      {(['day', 'week', 'month', 'quarter', 'semester', 'year'] as const).map(p => (
+                        <button 
+                          key={p}
+                          onClick={() => setArrearsChartPeriod(p)}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${arrearsChartPeriod === p ? 'bg-white text-emerald-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        >
+                          {p === 'day' ? 'Jour' : p === 'week' ? 'Semaine' : p === 'month' ? 'Mois' : p === 'quarter' ? 'Trimestre' : p === 'semester' ? 'Semestre' : 'An'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                      <h3 className="text-sm font-black text-slate-800 uppercase mb-6 flex items-center gap-2">
+                        <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                        Répartition par Zone (Cap. Restant)
+                      </h3>
+                      <div className="h-[250px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={(() => {
+                            const zoneTotals: Record<string, number> = {};
+                            filteredArrearsCredits.forEach(c => {
+                              const repaidCap = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+                              const capRest = (Number(c.creditAccordeChiffre) || 0) - repaidCap;
+                              zoneTotals[c.zone] = (zoneTotals[c.zone] || 0) + capRest;
+                            });
+                            return Object.entries(zoneTotals).map(([name, value]) => ({ name, value }));
+                          })()}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="name" fontSize={10} fontWeight="bold" tick={{ fill: '#64748b' }} axisLine={false} tickLine={false} />
+                            <YAxis fontSize={10} fontWeight="bold" tick={{ fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                            <Tooltip 
+                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px', fontWeight: 'bold' }}
+                              formatter={(v: number) => [v.toLocaleString(), 'Capital Restant']}
+                            />
+                            <Bar dataKey="value" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={30} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                      <h3 className="text-sm font-black text-slate-800 uppercase mb-6 flex items-center gap-2">
+                        <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                        Répartition par Type (Cap. Restant)
+                      </h3>
+                      <div className="h-[250px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={(() => {
+                            const typeTotals: Record<string, number> = {};
+                            filteredArrearsCredits.forEach(c => {
+                              const repaidCap = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+                              const capRest = (Number(c.creditAccordeChiffre) || 0) - repaidCap;
+                              typeTotals[c.creditType] = (typeTotals[c.creditType] || 0) + capRest;
+                            });
+                            return Object.entries(typeTotals).map(([name, value]) => ({ name, value }));
+                          })()}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="name" fontSize={10} fontWeight="bold" tick={{ fill: '#64748b' }} axisLine={false} tickLine={false} />
+                            <YAxis fontSize={10} fontWeight="bold" tick={{ fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                            <Tooltip 
+                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px', fontWeight: 'bold' }}
+                              formatter={(v: number) => [v.toLocaleString(), 'Capital Restant']}
+                            />
+                            <Bar dataKey="value" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={30} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                      <h3 className="text-sm font-black text-slate-800 uppercase mb-6 flex items-center gap-2">
+                        <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                        Évolution (Grant Date)
+                      </h3>
+                      <div className="h-[250px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={(() => {
+                            const periodData: Record<string, number> = {};
+                            filteredArrearsCredits.forEach(c => {
+                              const date = new Date(c.date);
+                              let key = '';
+                              if (arrearsChartPeriod === 'day') key = date.toISOString().split('T')[0];
+                              else if (arrearsChartPeriod === 'week') {
+                                const d = new Date(date);
+                                d.setDate(d.getDate() - d.getDay());
+                                key = `Sem ${d.toISOString().split('T')[0]}`;
+                              }
+                              else if (arrearsChartPeriod === 'month') key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              else if (arrearsChartPeriod === 'quarter') key = `${date.getFullYear()}-Q${Math.floor(date.getMonth() / 3) + 1}`;
+                              else if (arrearsChartPeriod === 'semester') key = `${date.getFullYear()}-S${Math.floor(date.getMonth() / 6) + 1}`;
+                              else key = `${date.getFullYear()}`;
+
+                              const repaidCap = (c.repayments || []).reduce((acc, r) => acc + (Number(r.capital) || 0), 0);
+                              const capRest = (Number(c.creditAccordeChiffre) || 0) - repaidCap;
+                              periodData[key] = (periodData[key] || 0) + capRest;
+                            });
+                            return Object.entries(periodData)
+                              .sort((a, b) => a[0].localeCompare(b[0]))
+                              .map(([name, value]) => ({ name, value }));
+                          })()}>
+                            <defs>
+                              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="name" fontSize={10} fontWeight="bold" tick={{ fill: '#64748b' }} axisLine={false} tickLine={false} />
+                            <YAxis fontSize={10} fontWeight="bold" tick={{ fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={(v) => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                            <Tooltip 
+                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', fontSize: '12px', fontWeight: 'bold' }}
+                              formatter={(v: number) => [v.toLocaleString(), 'Total Arriérés']}
+                            />
+                            <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-900 p-8 rounded-3xl text-white">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                      <div className="space-y-2">
+                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Capital en Retard</div>
+                        <div className="text-4xl font-black text-red-500">
+                          {filteredArrearsCredits.reduce((acc, c) => acc + ((Number(c.creditAccordeChiffre) || 0) - (c.repayments || []).reduce((ra, r) => ra + (Number(r.capital) || 0), 0)), 0).toLocaleString()} <span className="text-lg font-bold text-slate-600">FCFA</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Intérêts en Retard</div>
+                        <div className="text-4xl font-black text-blue-500">
+                          {filteredArrearsCredits.reduce((acc, c) => acc + ((Number(c.intTotal) || 0) - (c.repayments || []).reduce((ra, r) => ra + (Number(r.interests) || 0), 0)), 0).toLocaleString()} <span className="text-lg font-bold text-slate-600">FCFA</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nombre de Dossiers</div>
+                        <div className="text-4xl font-black text-emerald-500">
+                          {filteredArrearsCredits.length} <span className="text-lg font-bold text-slate-600">Dossiers</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
           )}
 
