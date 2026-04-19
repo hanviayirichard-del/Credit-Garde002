@@ -311,12 +311,15 @@ const App: React.FC = () => {
       if (serverData && !overrideData) {
         finalCredits = mergeById(credits, serverData.credits || []);
         finalUsers = mergeById(users, serverData.users || []);
-        finalLogs = mergeById(logs, serverData.logs || []);
+        // Fusion et tri des logs par ID (timestamp) puis limitation à 50 pour économiser l'espace
+        finalLogs = mergeById(logs, serverData.logs || [])
+          .sort((a, b) => b.id.localeCompare(a.id))
+          .slice(0, 50);
         
         // Si la fusion a ajouté des éléments, on met à jour l'état local
         if (finalCredits.length > credits.length) setCredits(finalCredits);
         if (finalUsers.length > users.length) setUsers(finalUsers);
-        if (finalLogs.length > logs.length) setLogs(finalLogs);
+        if (finalLogs.length !== logs.length) setLogs(finalLogs);
       }
 
       const payload = overrideData || {
@@ -478,7 +481,8 @@ const App: React.FC = () => {
 
   const addLog = (action: string, username: string, role: string, details?: string) => {
     const newLog: Log = {
-      id: crypto.randomUUID(),
+      // Utilisation du timestamp comme ID pour permettre un tri fiable et économiser de l'espace
+      id: Date.now().toString(), 
       timestamp: new Date().toLocaleString('fr-FR'),
       username,
       role,
@@ -486,7 +490,8 @@ const App: React.FC = () => {
       details,
       microfinance_code: microfinance_code_actif || ''
     };
-    setLogs(prev => [newLog, ...prev]);
+    // Limitation à 50 logs pour réduire la consommation de la base de données
+    setLogs(prev => [newLog, ...prev.filter(l => l.id !== newLog.id)].sort((a,b) => b.id.localeCompare(a.id)).slice(0, 50));
   };
 
   const isWithinDeactivationWindow = () => {
