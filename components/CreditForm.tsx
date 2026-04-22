@@ -176,6 +176,7 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
     latitude: '',
     longitude: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (creditToEdit) {
@@ -342,45 +343,51 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (readOnly) return;
+    if (readOnly || isSubmitting) return;
     if (!formData.clientName || !formData.creditAccordeChiffre || !formData.zone) {
       setErrorMessage("Enregistrement bloqué : Le 'Nom et Prénom', le 'Crédit (Chiffre)' et la 'Zone' sont obligatoires.");
       return;
     }
 
+    setIsSubmitting(true);
     setErrorMessage('');
-    const creditData: Credit = {
-      ...(creditToEdit || {}),
-      id: creditToEdit ? creditToEdit.id : crypto.randomUUID(),
-      microfinance_code: creditToEdit ? creditToEdit.microfinance_code : (microfinanceCode || ''),
-      ...formData,
-      montantCautionChiffre: Number(formData.montantCautionChiffre),
-      creditAccordeChiffre: Number(formData.creditAccordeChiffre),
-      dureeMois: Number(formData.dureeMois),
-      fraisEtudeDossier: Number(formData.fraisEtudeDossier),
-      nbreCreditAnterieur: Number(formData.nbreCreditAnterieur),
-      totalDu: Number(formData.totalDu),
-      caTotal: Number(formData.caTotal),
-      intTotal: Number(formData.intTotal),
-      caMensuel: Number(formData.caMensuel),
-      iMensuel: Number(formData.iMensuel),
-      clientRevenuMensuel: Number(formData.clientRevenuMensuel),
-      cautionNbrePersonnesCharge: Number(formData.cautionNbrePersonnesCharge),
-      cautionRevenuMensuel: Number(formData.cautionRevenuMensuel),
-      cautionPretInteretsChiffre: Number(formData.cautionPretInteretsChiffre),
-      latitude: formData.latitude ? Number(formData.latitude) : undefined,
-      longitude: formData.longitude ? Number(formData.longitude) : undefined,
-      amount: Number(formData.creditAccordeChiffre),
-      interestAmount: Number(formData.intTotal) || 0,
-      releaseDate: formData.dateDeblocage,
-      repayments: creditToEdit ? creditToEdit.repayments : [],
-      recoveryActions: creditToEdit ? (creditToEdit.recoveryActions || []) : []
-    } as any;
+    try {
+      const creditData: Credit = {
+        ...(creditToEdit || {}),
+        id: creditToEdit ? creditToEdit.id : crypto.randomUUID(),
+        microfinance_code: creditToEdit ? creditToEdit.microfinance_code : (microfinanceCode || ''),
+        ...formData,
+        montantCautionChiffre: Number(formData.montantCautionChiffre),
+        creditAccordeChiffre: Number(formData.creditAccordeChiffre),
+        dureeMois: Number(formData.dureeMois),
+        fraisEtudeDossier: Number(formData.fraisEtudeDossier),
+        nbreCreditAnterieur: Number(formData.nbreCreditAnterieur),
+        totalDu: Number(formData.totalDu),
+        caTotal: Number(formData.caTotal),
+        intTotal: Number(formData.intTotal),
+        caMensuel: Number(formData.caMensuel),
+        iMensuel: Number(formData.iMensuel),
+        clientRevenuMensuel: Number(formData.clientRevenuMensuel),
+        cautionNbrePersonnesCharge: Number(formData.cautionNbrePersonnesCharge),
+        cautionRevenuMensuel: Number(formData.cautionRevenuMensuel),
+        cautionPretInteretsChiffre: Number(formData.cautionPretInteretsChiffre),
+        latitude: formData.latitude ? Number(formData.latitude) : undefined,
+        longitude: formData.longitude ? Number(formData.longitude) : undefined,
+        amount: Number(formData.creditAccordeChiffre),
+        interestAmount: Number(formData.intTotal) || 0,
+        releaseDate: formData.dateDeblocage,
+        repayments: creditToEdit ? creditToEdit.repayments : [],
+        recoveryActions: creditToEdit ? (creditToEdit.recoveryActions || []) : []
+      } as any;
 
-    if (creditToEdit && onUpdateCredit) {
-      onUpdateCredit(creditData);
-    } else {
-      onAddCredit(creditData);
+      if (creditToEdit && onUpdateCredit) {
+        onUpdateCredit(creditData);
+      } else {
+        onAddCredit(creditData);
+      }
+    } catch (err) {
+      console.error(err);
+      setIsSubmitting(false);
     }
   };
 
@@ -750,9 +757,10 @@ const CreditForm: React.FC<CreditFormProps> = ({ onAddCredit, creditToEdit, onUp
         {!readOnly && (
           <button
             type="submit"
-            className="bg-[#10b981] hover:bg-emerald-600 text-white font-black py-4 px-12 rounded-2xl transition-all shadow-xl shadow-emerald-500/20 uppercase tracking-widest text-sm active:scale-95"
+            disabled={isSubmitting}
+            className={`bg-[#10b981] hover:bg-emerald-600 text-white font-black py-4 px-12 rounded-2xl transition-all shadow-xl shadow-emerald-500/20 uppercase tracking-widest text-sm active:scale-95 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            {creditToEdit ? "Mettre à jour le Dossier" : "Enregistrer le Dossier Complet"}
+            {isSubmitting ? "Traitement..." : (creditToEdit ? "Mettre à jour le Dossier" : "Enregistrer le Dossier Complet")}
           </button>
         )}
       </div>

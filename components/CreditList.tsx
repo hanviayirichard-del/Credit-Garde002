@@ -488,18 +488,18 @@ const CreditList: React.FC<CreditListProps> = ({
                 )}
               </div>
 
-              <div className="px-6 py-4 bg-gray-50/30 border-t border-gray-100 flex justify-between items-center">
-                <div className="flex gap-2">
+              <div className="px-6 py-4 bg-gray-50/30 border-t border-gray-100 flex flex-wrap justify-between items-center gap-4">
+                <div className="flex flex-wrap gap-2">
                   {!isRestricted && (
                     <>
-                      <button onClick={() => onPrintDossier?.(credit)} className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all shadow-sm">Imprimer Dossier</button>
-                      <button onClick={() => onExportDossier?.(credit)} className="bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all shadow-sm">Exporter Dossier</button>
+                      <button onClick={() => onPrintDossier?.(credit)} className="bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all shadow-sm whitespace-nowrap">Imprimer Dossier</button>
+                      <button onClick={() => onExportDossier?.(credit)} className="bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all shadow-sm whitespace-nowrap">Exporter Dossier</button>
                     </>
                   )}
                 </div>
-                <div className="flex gap-3">
-                  {!isRestricted && <button onClick={() => onEditCredit?.(credit)} className="text-gray-400 hover:text-blue-600 font-bold text-[10px] uppercase transition-colors">Modifier</button>}
-                  {userRole === 'Administrateur' && <button onClick={() => onDeleteCredit(credit.id)} className="text-red-400 hover:text-red-600 font-bold text-[10px] uppercase transition-colors">Supprimer</button>}
+                <div className="flex flex-wrap gap-4">
+                  {!isRestricted && <button onClick={() => onEditCredit?.(credit)} className="text-gray-400 hover:text-blue-600 font-bold text-[10px] uppercase transition-colors whitespace-nowrap">Modifier</button>}
+                  {userRole === 'Administrateur' && <button onClick={() => onDeleteCredit(credit.id)} className="text-red-400 hover:text-red-600 font-bold text-[10px] uppercase transition-colors whitespace-nowrap">Supprimer</button>}
                 </div>
               </div>
             </div>

@@ -309,16 +309,17 @@ const App: React.FC = () => {
       let finalLogs = logs;
 
       if (serverData && !overrideData) {
-        finalCredits = mergeById(credits, serverData.credits || []);
-        finalUsers = mergeById(users, serverData.users || []);
-        // Fusion et tri des logs par ID (timestamp) puis limitation à 50 pour économiser l'espace
+        // Pour les crédits et utilisateurs, on priorise l'état local pour permettre les suppressions
+        // On n'utilise plus mergeById ici car cela faisait réapparaître les éléments supprimés
+        finalCredits = credits;
+        finalUsers = users;
+        
+        // Fusion et tri des logs par ID (timestamp) puis limitation à 50 pour économiser l'espace (les logs sont additifs)
         finalLogs = mergeById(logs, serverData.logs || [])
           .sort((a, b) => b.id.localeCompare(a.id))
           .slice(0, 50);
         
-        // Si la fusion a ajouté des éléments, on met à jour l'état local
-        if (finalCredits.length > credits.length) setCredits(finalCredits);
-        if (finalUsers.length > users.length) setUsers(finalUsers);
+        // Si la fusion des logs a changé l'état, on met à jour l'état local
         if (finalLogs.length !== logs.length) setLogs(finalLogs);
       }
 
