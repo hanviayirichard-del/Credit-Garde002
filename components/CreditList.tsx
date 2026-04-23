@@ -259,6 +259,8 @@ const CreditList: React.FC<CreditListProps> = ({
                     <div className="text-[10px] font-bold text-gray-500 space-y-1">
                       <div className="flex flex-wrap gap-x-4 gap-y-1">
                         <p className={`${isLate ? 'text-red-600 font-black' : isSoon ? 'text-orange-600 font-black animate-pulse' : ''}`}>Échéance: {echeance || '-'}</p>
+                        <p>Déblocage: {credit.dateDeblocage || '-'}</p>
+                        {credit.creditType === 'ORDINAIRE FIDELIA' && <p>Dernier Remb.: {credit.dateDernierRemboursement || '-'}</p>}
                         <p>Zone: {credit.zone} | Agent: <span className="text-slate-800 font-black uppercase">{credit.agentCommercial || '-'}</span> | Tél: {credit.tel}</p>
                         <p>Profession: {credit.profession || '-'}</p>
                       </div>
